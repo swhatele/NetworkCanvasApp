@@ -82,7 +82,7 @@ def assign_question(df):
 
 # ── Parsers ───────────────────────────────────────────────────────────────────
 def parse_ego(b):
-    df=pd.read_csv(io.BytesIO(b))
+    df=pd.read_csv(io.BytesIO(b), encoding="utf-8-sig", encoding_errors="replace")
     if df.empty: return {}
     r=df.iloc[0]
     return {"ego_uuid":r.get("networkCanvasEgoUUID",""),"case_id":r.get("networkCanvasCaseID",""),
@@ -94,7 +94,7 @@ def parse_ego(b):
             "session_start":r.get("sessionStart",""),"session_finish":r.get("sessionFinish","")}
 
 def parse_attributes(b,ego_uuid,ego_name):
-    df=pd.read_csv(io.BytesIO(b)); df=assign_question(df)
+    df=pd.read_csv(io.BytesIO(b), encoding="utf-8-sig", encoding_errors="replace"); df=assign_question(df)
     type_cols=[c for c in df.columns if c.startswith("Type_")]
     nodes=[]
     for _,r in df.iterrows():
