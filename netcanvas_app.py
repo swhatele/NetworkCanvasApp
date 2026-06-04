@@ -1,6 +1,14 @@
 """
 TNN Network Analyzer — Connecting for Change
 Upload zipped NetCanvas exports + optional pre-survey Excel to explore the combined network.
+
+Changelog
+---------
+- Skip macOS metadata inside uploaded zips (__MACOSX/ folders, ._ AppleDouble
+  files, directory entries) in extract_zips(). Previously a binary ._foo.graphml
+  was matched on its .graphml extension and passed to ET.parse(), raising
+  xml.etree.ElementTree.ParseError. CSV reads already use utf-8-sig with
+  encoding_errors="replace", so this guard closes the remaining gap.
 """
 
 import io, zipfile, xml.etree.ElementTree as ET, math, collections
@@ -133,8 +141,12 @@ def extract_zips(uploaded_zips):
         if not zipfile.is_zipfile(io.BytesIO(raw)): st.warning(f"⚠️ `{f.name}` is not a valid zip — skipped."); continue
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
             for zname in zf.namelist():
+                # Skip directory entries and macOS metadata (__MACOSX/, ._ AppleDouble
+                # files). Without this, a binary ._foo.graphml is matched on its
+                # extension and handed to the XML parser, raising a ParseError.
+                if zname.endswith("/") or "__MACOSX" in zname.split("/"): continue
                 basename=zname.split("/")[-1]
-                if not basename: continue
+                if not basename or basename.startswith("._"): continue
                 fb=zf.read(zname)
                 if basename.endswith("_ego.csv"): buckets.setdefault(basename.replace("_ego.csv",""),{})["ego"]=fb
                 elif basename.endswith("_attributeList_Person.csv"): buckets.setdefault(basename.replace("_attributeList_Person.csv",""),{})["attrs"]=fb
