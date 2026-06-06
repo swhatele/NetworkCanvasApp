@@ -952,7 +952,7 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:white;}
       </p>""" if comm_html else "") + """
     </div>
   </div>
-  """ + ("""<div class="section-eyebrow" style="color:#0C7A7A;margin-top:32px;margin-bottom:8px;">Geographic distribution</div>""" + map_svg if map_svg else "") + """
+
   <p style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;color:rgba(255,255,255,0.3);margin-top:24px;max-width:600px;line-height:1.7;">
     The dominant relationship type is <strong style="color:rgba(255,255,255,0.6);">""" + top_rel + """</strong>.
     """ + ("The network spans " + str(n_geographies) + " geographic areas — distance shapes who stays connected." if n_geographies > 2 else "") + """
