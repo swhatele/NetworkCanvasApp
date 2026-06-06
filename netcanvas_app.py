@@ -235,8 +235,13 @@ def build_excel(ego_df,edge_df):
     out=io.BytesIO(); wb.save(out); out.seek(0); return out
 
 # ── Graph ─────────────────────────────────────────────────────────────────────
-def build_graph(edge_df):
+def build_graph(edge_df, ego_df=None):
     G=nx.DiGraph()
+    # Add all survey takers as nodes first, so isolated egos still appear
+    if ego_df is not None and "Name" in ego_df.columns:
+        for name in ego_df["Name"].dropna():
+            name=str(name).strip()
+            if name and name not in ("nan","None"): G.add_node(name)
     if edge_df.empty: return G
     for _,r in edge_df.iterrows():
         frm=str(r["From"]).strip(); to=str(r["To"]).strip()
@@ -523,84 +528,9 @@ def build_insights_html(a, ego_df, edge_df):
             sector_html += '<div class="chip">' + str(s) + ' <span class="chip-n">' + str(c) + '</span></div>'
 
     # ── SVG US Map ─────────────────────────────────────────────────────────
-    STATE_MAP = {
-        "atlanta":"GA","georgia":"GA","ga":"GA","south atlanta":"GA",
-        "chicago":"IL","illinois":"IL","il":"IL",
-        "minneapolis":"MN","minnesota":"MN","twin cities":"MN","mn":"MN",
-        "kansas":"KS","kansas city":"KS","ks":"KS",
-        "oregon":"OR","portland":"OR","or":"OR",
-        "alabama":"AL","birmingham":"AL","al":"AL",
-        "new jersey":"NJ","nj":"NJ","eastern pa":"PA","pennsylvania":"PA","pa":"PA",
-        "north carolina":"NC","nc":"NC","asheville":"NC","charlotte":"NC","black mountain":"NC",
-        "new york":"NY","ny":"NY",
-        "texas":"TX","tx":"TX",
-        "california":"CA","ca":"CA","los angeles":"CA","san francisco":"CA",
-        "washington":"WA","wa":"WA","seattle":"WA",
-        "colorado":"CO","co":"CO","denver":"CO",
-        "ohio":"OH","oh":"OH",
-        "michigan":"MI","mi":"MI","detroit":"MI",
-        "tennessee":"TN","tn":"TN","nashville":"TN",
-        "virginia":"VA","va":"VA",
-        "maryland":"MD","md":"MD","baltimore":"MD",
-        "florida":"FL","fl":"FL","miami":"FL",
-        "massachusetts":"MA","ma":"MA","boston":"MA",
-        "arizona":"AZ","az":"AZ","phoenix":"AZ",
-        "missouri":"MO","mo":"MO","st. louis":"MO","saint louis":"MO",
-        "indiana":"IN","in":"IN","indianapolis":"IN",
-        "wisconsin":"WI","wi":"WI","milwaukee":"WI",
-    }
-    # Approximate state centroids for SVG (x,y on 960x600 AlbersUSa-like projection)
-    STATE_POS = {
-        "AL":(600,360),"AK":(120,480),"AZ":(220,340),"AR":(550,340),
-        "CA":(110,270),"CO":(290,280),"CT":(820,210),"DE":(790,250),
-        "FL":(660,420),"GA":(640,360),"HI":(240,520),"ID":(210,190),
-        "IL":(570,250),"IN":(610,250),"IA":(530,230),"KS":(460,290),
-        "KY":(630,290),"LA":(550,390),"ME":(860,160),"MD":(770,260),
-        "MA":(840,200),"MI":(620,210),"MN":(510,170),"MS":(580,370),
-        "MO":(540,290),"MT":(260,160),"NE":(440,250),"NV":(175,265),
-        "NH":(840,185),"NJ":(800,240),"NM":(280,340),"NY":(780,210),
-        "NC":(710,310),"ND":(440,165),"OH":(660,240),"OK":(470,330),
-        "OR":(145,200),"PA":(740,230),"RI":(845,210),"SC":(680,340),
-        "SD":(440,210),"TN":(620,320),"TX":(440,390),"UT":(240,280),
-        "VT":(820,185),"VA":(730,280),"WA":(155,160),"WV":(700,265),
-        "WI":(560,200),"WY":(295,220),
-    }
-    import collections as _col
-    geo_counts = a.get("geo_counts", {})
-    state_counts = _col.defaultdict(int)
-    for geo, cnt in geo_counts.items():
-        key = str(geo).lower().strip()
-        matched = None
-        for k, v in STATE_MAP.items():
-            if k in key:
-                matched = v; break
-        if matched:
-            state_counts[matched] += cnt
-        elif len(key) == 2 and key.upper().isalpha():
-            state_counts[key.upper()] += cnt
+    map_svg = ""  # No static map — using bar chart instead
 
-    map_svg = ""
-    if state_counts:
-        max_sc = max(state_counts.values())
-        svg_parts = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" style="width:100%;max-width:800px;display:block;margin:0 auto;">']
-        svg_parts.append('<rect width="960" height="600" fill="#0f0e2e"/>')
-        # Draw all states as circles at their centroid (simplified — no path data needed)
-        for state, (cx, cy) in STATE_POS.items():
-            count = state_counts.get(state, 0)
-            if count > 0:
-                intensity = 0.3 + 0.7 * (count / max_sc)
-                r = 16 + int(24 * (count / max_sc))
-                svg_parts.append('<circle cx="' + str(cx) + '" cy="' + str(cy) + '" r="' + str(r) + '" fill="rgba(40,37,190,' + str(round(intensity,2)) + ')" stroke="#2825BE" stroke-width="1"/>')
-                svg_parts.append('<text x="' + str(cx) + '" y="' + str(cy+4) + '" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="white">' + state + '</text>')
-            else:
-                svg_parts.append('<circle cx="' + str(cx) + '" cy="' + str(cy) + '" r="8" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.1)" stroke-width="0.5"/>')
-                svg_parts.append('<text x="' + str(cx) + '" y="' + str(cy+3) + '" text-anchor="middle" font-family="IBM Plex Mono" font-size="7" fill="rgba(255,255,255,0.2)">' + state + '</text>')
-        # Legend
-        svg_parts.append('<text x="20" y="580" font-family="IBM Plex Mono" font-size="9" fill="rgba(255,255,255,0.3)">Circle size and opacity = number of respondents. States with respondents shown in indigo.</text>')
-        svg_parts.append('</svg>')
-        map_svg = "\n".join(svg_parts)
-
-    # Geo bar fallback (also used as supplementary list)
+        # Geo bar fallback (also used as supplementary list)
     geo_html = ""
     if geo_counts:
         max_geo = max(geo_counts.values())
@@ -1114,7 +1044,7 @@ with st.sidebar:
                 ego_df,edge_df,warnings=process_buckets(buckets)
                 pre_df=parse_presurvey(presurvey_file) if presurvey_file else pd.DataFrame()
                 if not pre_df.empty: ego_df=merge_presurvey(ego_df,pre_df)
-                G=build_graph(edge_df)
+                G=build_graph(edge_df, ego_df)
                 ego_names=list(ego_df["Name"].dropna()) if "Name" in ego_df.columns else []
                 node_meta={}
                 if not pre_df.empty:
