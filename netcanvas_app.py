@@ -320,6 +320,49 @@ def parse_skills(s):
     if pd.isna(s) or not str(s).strip(): return []
     return [x.strip() for x in str(s).split(",") if x.strip()]
 
+def build_skill_svg(show_m):
+    """Build an SVG bipartite matchmaking diagram without nested f-strings."""
+    skill_colors = [INDIGO, TEAL, AMBER, GREEN, TERRA, INDIGO_LT]
+    left_names = sorted(set(n for m in show_m for n in m["offerers"]))[:12]
+    right_names = sorted(set(n for m in show_m for n in m["needers"]))[:12]
+    svg_h = max(400, max(len(left_names), len(right_names)) * 36 + 80)
+    svg_w = 700
+    row_h = (svg_h - 80) / max(max(len(left_names),1), max(len(right_names),1))
+    left_y  = {n: 40 + i*row_h + row_h/2 for i,n in enumerate(left_names)}
+    right_y = {n: 40 + i*row_h + row_h/2 for i,n in enumerate(right_names)}
+    parts = []
+    parts.append('<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 ' + str(svg_w) + ' ' + str(svg_h) + '" style="background:' + SURFACE2 + ';border-radius:6px;">')
+    parts.append('<text x="180" y="20" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="' + TEAL + '" letter-spacing="2">OFFERS</text>')
+    parts.append('<text x="' + str(svg_w-180) + '" y="20" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="' + AMBER + '" letter-spacing="2">NEEDS</text>')
+    # Lines
+    for si, m in enumerate(show_m):
+        color = skill_colors[si % len(skill_colors)]
+        for o in m["offerers"]:
+            if o in left_y:
+                for n in m["needers"]:
+                    if n in right_y and o != n:
+                        lx=180; ly=left_y[o]; rx=svg_w-180; ry=right_y[n]; mx=svg_w/2
+                        parts.append('<path d="M' + str(lx) + ',' + str(ly) + ' C' + str(mx) + ',' + str(ly) + ' ' + str(mx) + ',' + str(ry) + ' ' + str(rx) + ',' + str(ry) + '" stroke="' + color + '" stroke-width="1.5" fill="none" opacity="0.4"/>')
+    # Left nodes
+    for n in left_names:
+        cy = str(left_y[n]); cy4 = str(left_y[n]+4)
+        parts.append('<circle cx="180" cy="' + cy + '" r="5" fill="' + INDIGO + '"/>')
+        parts.append('<text x="170" y="' + cy4 + '" text-anchor="end" font-family="IBM Plex Mono" font-size="10" fill="' + TEXT2 + '">' + n[:22] + '</text>')
+    # Right nodes
+    for n in right_names:
+        cy = str(right_y[n]); cy4 = str(right_y[n]+4); cx = str(svg_w-180); cx2 = str(svg_w-170)
+        parts.append('<circle cx="' + cx + '" cy="' + cy + '" r="5" fill="' + AMBER + '"/>')
+        parts.append('<text x="' + cx2 + '" y="' + cy4 + '" text-anchor="start" font-family="IBM Plex Mono" font-size="10" fill="' + TEXT2 + '">' + n[:22] + '</text>')
+    # Legend
+    for si, m in enumerate(show_m):
+        x1=str(20+si*110); y1=str(svg_h-28); x2=str(32+si*110); y2=str(svg_h-21)
+        parts.append('<rect x="' + x1 + '" y="' + y1 + '" width="8" height="8" fill="' + skill_colors[si%len(skill_colors)] + '"/>')
+        parts.append('<text x="' + x2 + '" y="' + y2 + '" font-family="IBM Plex Sans" font-size="9" fill="' + TEXT3 + '">' + m["skill"][:14] + '</text>')
+    parts.append('</svg>')
+    return chr(10).join(parts)
+
+
+
 def build_skill_match(pre_df):
     off=collections.defaultdict(list); need=collections.defaultdict(list)
     for _,r in pre_df.iterrows():
@@ -945,13 +988,11 @@ with tab3:
 
         matchable=[m for m in matches if m["offered"]>0 and m["needed"]>0]
         if matchable:
-            st.markdown(f'<div class="eyebrow" style="color:{TEAL};margin-top:8px;">Matchmaking opportunities</div>',unsafe_allow_html=True)
-            cols=st.columns(2)
-            for i,m in enumerate(matchable[:8]):
-                with cols[i%2]:
-                    o=", ".join(m["offerers"][:3])+("…" if len(m["offerers"])>3 else "")
-                    n=", ".join(m["needers"][:3])+("…" if len(m["needers"])>3 else "")
-                    st.markdown(f'<div class="skill-match"><div class="sm-skill">{m["skill"]}</div><div class="sm-body"><b style="color:{TEAL};">Offers:</b> {o}<br><b style="color:{AMBER};">Needs:</b> {n}</div></div>',unsafe_allow_html=True)
+            st.markdown(f'<div class="eyebrow" style="color:{TEAL};margin-top:8px;">Skill matchmaking</div>',unsafe_allow_html=True)
+            st.markdown(f'<p style="font-size:13px;color:{TEXT2};margin-bottom:16px;">Lines connect people who offer a skill to those who need it. The thicker the opportunity, the more people it could connect.</p>',unsafe_allow_html=True)
+
+            # Build SVG matchmaking diagram using helper function
+            st.markdown(build_skill_svg(matchable[:6]), unsafe_allow_html=True)
 
         if "challenge" in pre_df.columns:
             st.markdown(f'<div class="eyebrow" style="color:{TERRA};margin-top:16px;">Challenges named</div>',unsafe_allow_html=True)
@@ -963,53 +1004,384 @@ with tab4:
     if not a:
         st.info("Process data to generate insights.")
     else:
-        st.markdown(f'<div class="eyebrow" style="color:{AMBER};">Key findings</div>',unsafe_allow_html=True)
-        st.markdown(f'<h2 style="font-family:Barlow Condensed,sans-serif;font-size:32px;text-transform:uppercase;margin-bottom:24px;">What the network shows</h2>',unsafe_allow_html=True)
+        # ── Hub-style header ──
+        st.markdown(f"""
+        <div style="background:{INK};border-radius:8px;padding:40px 40px 32px;margin-bottom:24px;">
+          <div class="eyebrow" style="color:{AMBER};">Network Insights · TNN 2026</div>
+          <h2 style="font-family:Barlow Condensed,sans-serif;font-size:44px;font-weight:900;text-transform:uppercase;color:white;letter-spacing:-0.02em;margin:8px 0 12px;line-height:1;">What the network shows</h2>
+          <p style="font-family:IBM Plex Sans,sans-serif;font-size:15px;color:rgba(255,255,255,0.5);max-width:560px;line-height:1.7;margin:0;">
+            {a.get("n_respondents",0)} respondents · {a.get("n_nodes",0)} people in the network · {a.get("n_edges",0)} connections · density {a.get("density",0):.3f}
+          </p>
+        </div>""", unsafe_allow_html=True)
 
-        # Editorial findings layout
+        # ── Seven-component lens ──
+        st.markdown(f'<div class="eyebrow" style="color:{TEAL};">Mapped to the seven components framework</div>', unsafe_allow_html=True)
+        st.markdown(f'<p style="font-size:13px;color:{TEXT2};max-width:620px;line-height:1.6;margin-bottom:16px;">The TNN framework identifies seven components that make a neighborhood thrive. The network data speaks most directly to the relational components: Recognition, Mutual Obligation, and Institutional Anchors.</p>', unsafe_allow_html=True)
+
         trust_pct = a.get("pct_trust",0)
         trust_low = a.get("pct_low_trust",0)
         energy_pct = a.get("pct_energy",0)
         energy_low = a.get("pct_low_energy",0)
-        trust_body = "Strong foundation." if trust_pct>=60 else f"{trust_low}% of connections score low on trust. These are the relationships most worth attending to."
-        energy_body = "Most connections feel generative." if energy_pct>=60 else f"{energy_low}% feel low-energy. Energy tracks closely with trust."
-        findings=[
-            ("SCALE",f"{a.get('n_nodes',0)} people · {a.get('n_edges',0)} connections",
-             f"Network density is {a.get('density',0):.3f}. {'The cohort is well-connected.' if a.get('density',0)>0.15 else 'There is substantial room to build connections across the full group.'}"),
-            ("DEPTH",f"{a.get('pct_deep',0)}% at cooperation or collaboration",
-             "The remaining connections sit at Awareness or Connection — early but real."),
-            ("TRUST",f"{trust_pct}% rate trust highly",
-             trust_body),
-            ("ENERGY",f"{energy_pct}% feel high-energy",
-             energy_body),
-            ("RECIPROCITY",f"{a.get('pct_balanced',0)}% described as balanced",
-             "Imbalanced flows are normal — mentorship, funding, and support often run one direction. The question is whether people feel it."),
-        ]
+        pct_deep = a.get("pct_deep",0)
+        pct_balanced = a.get("pct_balanced",0)
+        n_communities = a.get("n_communities",1)
+        n_geographies = a.get("n_geographies",0)
 
-        if a.get("n_survey_isolated",0)>0:
-            findings.append(("ISOLATION",f"{a.get('n_survey_isolated',0)} member(s) not yet named by others",
-                "The proposal names leader loneliness as a concern. These are the people most likely to benefit from intentional connection."))
+        COMP_COLORS = {"recognition":INDIGO,"mutual_obligation":TEAL,"institutional":AMBER,"common_stakes":GREEN,"geometry":TERRA}
 
+        def insight_card(eyebrow, eyebrow_color, headline, stat, stat_color, body, component_tag=None):
+            tag_html = f'<div style="font-family:IBM Plex Mono,monospace;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:{eyebrow_color};border:1px solid {eyebrow_color};padding:2px 8px;border-radius:2px;display:inline-block;margin-bottom:8px;">{component_tag}</div>' if component_tag else ""
+            return f"""<div style="border-left:3px solid {eyebrow_color};padding:20px 24px;background:{SURFACE2};margin-bottom:12px;border-radius:0 6px 6px 0;">
+              {tag_html}
+              <div style="font-family:IBM Plex Mono,monospace;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:{eyebrow_color};margin-bottom:6px;">{eyebrow}</div>
+              <div style="font-family:Barlow Condensed,sans-serif;font-size:28px;font-weight:800;color:{stat_color};line-height:1;margin-bottom:6px;">{stat}</div>
+              <div style="font-family:Barlow Condensed,sans-serif;font-size:18px;font-weight:700;color:{INK};margin-bottom:6px;">{headline}</div>
+              <div style="font-family:IBM Plex Sans,sans-serif;font-size:13px;color:{TEXT2};line-height:1.65;max-width:560px;">{body}</div>
+            </div>"""
+
+        col_l, col_r = st.columns(2)
+
+        with col_l:
+            # Recognition component
+            st.markdown(f'<div style="font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:{INDIGO};border-bottom:2px solid {INDIGO};padding-bottom:6px;margin-bottom:12px;">2 · Recognition</div>', unsafe_allow_html=True)
+            indeg = dict(G.in_degree())
+            n_named_multi = sum(1 for n,d in indeg.items() if d>1)
+            n_named_once = sum(1 for n,d in indeg.items() if d==1)
+            n_not_named = a.get("n_periphery",0) + a.get("n_survey_isolated",0)
+            st.markdown(insight_card(
+                "DENSITY OF WEAK TIES", INDIGO,
+                "Who is known, and by how many",
+                f"{n_named_multi} named by 2+",
+                INDIGO,
+                f"{n_named_multi} people are named by multiple respondents — a sign of shared recognition. {n_named_once} appear in only one person's network. {n_not_named} are not named by anyone else, suggesting potential gaps in mutual visibility.",
+                "Key attribute: density of weak ties"
+            ), unsafe_allow_html=True)
+
+            # Mutual Obligation
+            st.markdown(f'<div style="font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:{TEAL};border-bottom:2px solid {TEAL};padding-bottom:6px;margin-bottom:12px;margin-top:20px;">4 · Mutual Obligation</div>', unsafe_allow_html=True)
+            trust_color = GREEN if trust_pct>=60 else (AMBER if trust_pct>=40 else TERRA)
+            st.markdown(insight_card(
+                "TRUST", trust_color,
+                "Care that holds when something tests it",
+                f"{trust_pct}% rate trust highly",
+                trust_color,
+                f"Trust under stress is the diagnostic attribute of mutual obligation. {f'{trust_low}% of connections score low on trust — these are the relationships where mutual obligation is most fragile.' if trust_low>15 else 'The network shows a relatively strong trust foundation.'} Reciprocity: {pct_balanced}% of connections are described as roughly balanced.",
+                "Key attribute: trust under stress"
+            ), unsafe_allow_html=True)
+            st.markdown(insight_card(
+                "ENERGY & CREATIVITY", TEAL,
+                "Generativity across connections",
+                f"{energy_pct}% / {a.get('pct_creativity',0)}%",
+                TEAL,
+                f"Energy ({energy_pct}% high) and Creativity ({a.get('pct_creativity',0)}% high) track the aliveness of relationships. Where these are low, mutual obligation may exist in name but not in felt experience.",
+                "Key attribute: reciprocity of care"
+            ), unsafe_allow_html=True)
+
+        with col_r:
+            # Institutional Anchors
+            st.markdown(f'<div style="font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:{AMBER};border-bottom:2px solid {AMBER};padding-bottom:6px;margin-bottom:12px;">6 · Institutional Anchors</div>', unsafe_allow_html=True)
+            if "Sector" in ego_df.columns:
+                sectors = ego_df["Sector"].dropna().value_counts()
+                top_sector = sectors.index[0] if len(sectors) else "N/A"
+                n_sectors = len(sectors)
+                st.markdown(insight_card(
+                    "DISTRIBUTION ACROSS FUNCTION", AMBER,
+                    "Coverage across the ecosystem",
+                    f"{n_sectors} sector{'s' if n_sectors!=1 else ''}",
+                    AMBER,
+                    f"The network spans {n_sectors} organizational sectors, led by {top_sector}. The framework asks whether institutional coverage spans the full range of functions — this is where gaps in sector representation become visible.",
+                    "Key attribute: distribution across function"
+                ), unsafe_allow_html=True)
+
+            # Network structure
+            st.markdown(f'<div style="font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:{GREEN};border-bottom:2px solid {GREEN};padding-bottom:6px;margin-bottom:12px;margin-top:20px;">Structure · Depth · Geography</div>', unsafe_allow_html=True)
+            depth_color = GREEN if pct_deep>=50 else AMBER
+            st.markdown(insight_card(
+                "DEPTH OF CONNECTION", depth_color,
+                "From awareness to collaboration",
+                f"{pct_deep}% at cooperation+",
+                depth_color,
+                f"The framework distinguishes presence from grounding. Depth is the network equivalent: {pct_deep}% of connections reach Cooperation or Collaboration, meaning they involve real working exchange — not just awareness of one another.",
+                "Framework: activated vs. potential"
+            ), unsafe_allow_html=True)
+
+            if n_communities > 1:
+                st.markdown(insight_card(
+                    "CLUSTERS", INDIGO,
+                    "Distinct groups within the network",
+                    f"{n_communities} clusters",
+                    INDIGO,
+                    f"The network contains {n_communities} distinct clusters — groups that interact more within themselves than across. The framework's boundary question applies here: whose 'we' is each cluster built around, and who sits between them?",
+                    "Framework: boundary question"
+                ), unsafe_allow_html=True)
+
+            if n_geographies > 1:
+                geo_color = AMBER if n_geographies > 3 else GREEN
+                st.markdown(insight_card(
+                    "GEOGRAPHY", geo_color,
+                    "Where the network lives",
+                    f"{n_geographies} area{'s' if n_geographies!=1 else ''}",
+                    geo_color,
+                    f"The network spans {n_geographies} geographic areas. The framework notes that geography excludes, relationship includes — the asymmetry has to be held with intentionality, especially for a distributed network.",
+                    "Framework: geography excludes"
+                ), unsafe_allow_html=True)
+
+        # ── What to watch ──
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(f'<div class="eyebrow" style="color:{TERRA};">Signals worth watching</div>', unsafe_allow_html=True)
+        watch_items = []
+        if trust_low > 15:
+            watch_items.append(("Trust gap", f"{trust_low}% of connections score low on trust.", TERRA))
+        if a.get("n_survey_isolated",0) > 0:
+            watch_items.append(("Isolation", f"{a.get('n_survey_isolated',0)} survey taker(s) not named by anyone else — the loneliness the proposal flags.", TERRA))
         if a.get("top_bridge"):
-            findings.append(("BRIDGE RISK",f"One person carries disproportionate connective load",
-                "The person with the highest betweenness centrality sits on more paths between others than anyone else. Their engagement is a structural asset — and a structural vulnerability."))
+            watch_items.append(("Bridge concentration", f"One person carries disproportionate connective load (betweenness {a.get('top_bridge_score',0):.3f}). Structural asset and structural vulnerability.", AMBER))
+        if energy_low > 25:
+            watch_items.append(("Low-energy connections", f"{energy_low}% of connections feel low-energy — worth asking which ones, and why.", AMBER))
+        if not watch_items:
+            watch_items.append(("No major signals", "The network looks healthy across the key dimensions.", GREEN))
 
-        if a.get("n_geographies",0)>2:
-            findings.append(("GEOGRAPHY",f"Network spans {a.get('n_geographies',0)} areas",
-                "Geographic spread is both a strength and a challenge. The clusters that exist likely reflect geography as much as affinity."))
-
-        for lbl_,stat,body in findings:
-            color=TERRA if lbl_ in ["ISOLATION","BRIDGE RISK"] else (AMBER if lbl_ in ["TRUST","ENERGY"] and ("low" in body.lower() or "not yet" in body.lower()) else INDIGO)
-            st.markdown(f'<div class="finding"><div class="f-label" style="color:{AMBER};">{lbl_}</div><div class="f-stat" style="color:{color};">{stat}</div><div class="f-body">{body}</div></div>',unsafe_allow_html=True)
+        w_cols = st.columns(len(watch_items)) if len(watch_items) <= 3 else st.columns(3)
+        for i,(label,text,color) in enumerate(watch_items):
+            with w_cols[i % len(w_cols)]:
+                st.markdown(f'<div style="background:{SURFACE2};border-top:3px solid {color};padding:16px;border-radius:0 0 6px 6px;"><div style="font-family:IBM Plex Mono,monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:{color};margin-bottom:6px;">{label}</div><div style="font-family:IBM Plex Sans,sans-serif;font-size:13px;color:{TEXT2};line-height:1.6;">{text}</div></div>', unsafe_allow_html=True)
 
 # ═══ TAB 5: ROOM VIEW ════════════════════════════════════════════════════════
 with tab5:
     st.markdown(f'<div class="eyebrow" style="color:{TEAL};">Projectable insights · Activity 5 — Who is in the ecosystem?</div>',unsafe_allow_html=True)
-    st.markdown("Preview the anonymized HTML document designed for projection in the room. Download it from the sidebar.")
-    st.markdown("<br>",unsafe_allow_html=True)
+    st.markdown(f'<p style="font-size:13px;color:{TEXT2};margin-bottom:20px;">All visuals are anonymized. Download the full projectable HTML from the sidebar.</p>',unsafe_allow_html=True)
 
-    if a:
-        html_preview=build_insights_html(a,ego_df,edge_df)
-        st.components.v1.html(html_preview,height=700,scrolling=True)
+    if not a:
+        st.info("Process data to generate the room view.")
     else:
-        st.info("Process data to preview the insights document.")
+        # ── Geographic map ──────────────────────────────────────────────────
+        st.markdown(f'<div class="eyebrow" style="color:{TEAL};">Geographic spread</div>',unsafe_allow_html=True)
+        geo_counts = a.get("geo_counts", {})
+        if geo_counts:
+            # Build a choropleth using state abbreviations or names
+            # Map common city/region mentions to US states
+            STATE_MAP = {
+                "atlanta":"GA","georgia":"GA","ga":"GA",
+                "chicago":"IL","illinois":"IL","il":"IL",
+                "minneapolis":"MN","minnesota":"MN","twin cities":"MN","mn":"MN",
+                "kansas":"KS","kansas city":"KS","ks":"KS",
+                "oregon":"OR","portland":"OR","or":"OR",
+                "alabama":"AL","birmingham":"AL","al":"AL",
+                "new jersey":"NJ","nj":"NJ","eastern pa":"PA","pennsylvania":"PA","pa":"PA",
+                "north carolina":"NC","nc":"NC","asheville":"NC","charlotte":"NC",
+                "new york":"NY","ny":"NY",
+                "texas":"TX","tx":"TX",
+                "california":"CA","ca":"CA","los angeles":"CA","san francisco":"CA",
+                "washington":"WA","wa":"WA","seattle":"WA",
+                "colorado":"CO","co":"CO","denver":"CO",
+                "ohio":"OH","oh":"OH",
+                "michigan":"MI","mi":"MI","detroit":"MI",
+                "tennessee":"TN","tn":"TN","nashville":"TN",
+                "virginia":"VA","va":"VA",
+                "maryland":"MD","md":"MD","baltimore":"MD",
+                "florida":"FL","fl":"FL","miami":"FL",
+                "massachusetts":"MA","ma":"MA","boston":"MA",
+                "arizona":"AZ","az":"AZ","phoenix":"AZ",
+                "missouri":"MO","mo":"MO","st. louis":"MO","saint louis":"MO",
+                "indiana":"IN","in":"IN","indianapolis":"IN",
+                "wisconsin":"WI","wi":"WI","milwaukee":"WI",
+            }
+            state_counts = collections.defaultdict(int)
+            for geo, cnt in geo_counts.items():
+                key = str(geo).lower().strip()
+                matched = None
+                for k,v in STATE_MAP.items():
+                    if k in key:
+                        matched = v
+                        break
+                if matched:
+                    state_counts[matched] += cnt
+                else:
+                    # Try direct 2-letter state code
+                    if len(key) == 2 and key.upper().isalpha():
+                        state_counts[key.upper()] += cnt
+
+            if state_counts:
+                
+                states = list(state_counts.keys())
+                counts = [state_counts[s] for s in states]
+                fig_map = go.Figure(go.Choropleth(
+                    locations=states, z=counts, locationmode="USA-states",
+                    colorscale=[[0,"#c7c5f5"],[0.5,INDIGO_LT],[1,INDIGO]],
+                    showscale=True,
+                    colorbar=dict(title="People",tickfont=dict(family="IBM Plex Mono",size=10)),
+                    marker_line_color="white", marker_line_width=0.5,
+                ))
+                fig_map.update_layout(
+                    geo=dict(scope="usa",bgcolor=SURFACE2,lakecolor=SURFACE2,
+                             landcolor=SURFACE2,showlakes=True,
+                             showcoastlines=False,
+                             projection_type="albers usa"),
+                    paper_bgcolor=SURFACE2, margin=dict(l=0,r=0,t=0,b=0), height=320,
+                    font=dict(family="IBM Plex Sans"))
+                st.plotly_chart(fig_map, use_container_width=True)
+            else:
+                # Fallback bar chart if states can't be parsed
+                st.plotly_chart(go.Figure(go.Bar(
+                    x=list(geo_counts.values()), y=list(geo_counts.keys()),
+                    orientation="h", marker_color=INDIGO, marker_line_width=0
+                )).update_layout(paper_bgcolor=SURFACE2,plot_bgcolor=SURFACE2,height=200,
+                    margin=dict(l=0,r=0,t=8,b=8),
+                    xaxis=dict(showgrid=False,showticklabels=False),
+                    yaxis=dict(tickfont=dict(family="IBM Plex Sans",size=11),showgrid=False,autorange="reversed")),
+                use_container_width=True)
+        else:
+            st.info("No geography data available.")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── Anonymized network ───────────────────────────────────────────────
+        r5col1, r5col2 = st.columns([3,2])
+        with r5col1:
+            st.markdown(f'<div class="eyebrow" style="color:{TEAL};">Network structure · anonymized</div>',unsafe_allow_html=True)
+            st.markdown(f'<p style="font-size:12px;color:{TEXT3};margin-bottom:8px;">Node size = connections. Amber = high betweenness (bridge role). Red = not named by others.</p>',unsafe_allow_html=True)
+
+            if len(G.nodes) > 0:
+                UG_anon = G.to_undirected()
+                try:
+                    pos_anon = nx.spring_layout(UG_anon, seed=42, k=2.8/math.sqrt(max(len(G.nodes),1)))
+                except:
+                    pos_anon = nx.random_layout(UG_anon, seed=42)
+
+                deg_anon = dict(G.degree())
+                bw_anon = nx.betweenness_centrality(G)
+                indeg_anon = dict(G.in_degree())
+                max_bw = max(bw_anon.values()) if bw_anon else 1
+                max_deg_anon = max(deg_anon.values()) if deg_anon else 1
+
+                ex2,ey2=[],[]
+                for u,v in G.edges():
+                    x0,y0=pos_anon[u]; x1,y1=pos_anon[v]
+                    ex2+=[x0,x1,None]; ey2+=[y0,y1,None]
+
+                def anon_color(n):
+                    bw_norm = bw_anon.get(n,0)/max(max_bw,0.001)
+                    if indeg_anon.get(n,0) == 0: return TERRA
+                    if bw_norm > 0.15: return AMBER
+                    return INDIGO
+
+                anon_colors = [anon_color(n) for n in G.nodes]
+                anon_sizes = [10 + 28*(deg_anon.get(n,0)/max(max_deg_anon,1)) for n in G.nodes]
+
+                # Highlight bridge edges in amber
+                bridge_nodes = {n for n in G.nodes if bw_anon.get(n,0)/max(max_bw,0.001) > 0.15}
+                bex,bey,rex,rey=[],[],[],[]
+                for u,v in G.edges():
+                    x0,y0=pos_anon[u]; x1,y1=pos_anon[v]
+                    if u in bridge_nodes or v in bridge_nodes:
+                        bex+=[x0,x1,None]; bey+=[y0,y1,None]
+                    else:
+                        rex+=[x0,x1,None]; rey+=[y0,y1,None]
+
+                anon_traces = []
+                if rex: anon_traces.append(go.Scatter(x=rex,y=rey,mode="lines",line=dict(width=1,color="rgba(40,37,190,0.2)"),hoverinfo="none",showlegend=False))
+                if bex: anon_traces.append(go.Scatter(x=bex,y=bey,mode="lines",line=dict(width=1.8,color="rgba(235,144,1,0.45)"),hoverinfo="none",showlegend=False,name="Bridge connection"))
+                anon_traces.append(go.Scatter(
+                    x=[pos_anon[n][0] for n in G.nodes], y=[pos_anon[n][1] for n in G.nodes],
+                    mode="markers",
+                    hovertext=[f"Connections: {deg_anon[n]}<br>Bridge score: {bw_anon.get(n,0):.3f}" for n in G.nodes],
+                    hoverinfo="text",
+                    marker=dict(size=anon_sizes, color=anon_colors, line=dict(width=1.5,color="white")),
+                    showlegend=False))
+
+                fig_anon = go.Figure(data=anon_traces)
+                fig_anon.update_layout(
+                    paper_bgcolor=SURFACE2,plot_bgcolor=SURFACE2,
+                    margin=dict(l=8,r=8,t=8,b=8),height=380,
+                    xaxis=dict(showgrid=False,zeroline=False,showticklabels=False,showline=False),
+                    yaxis=dict(showgrid=False,zeroline=False,showticklabels=False,showline=False),
+                    font=dict(family="IBM Plex Sans"),
+                    hoverlabel=dict(bgcolor=INK2,font_color="white",font_family="IBM Plex Sans"))
+                st.plotly_chart(fig_anon, use_container_width=True)
+
+        with r5col2:
+            # ── Bridge nodes + Activity 5 connection ────────────────────────
+            st.markdown(f'<div class="eyebrow" style="color:{AMBER};">Bridge nodes · Activity 5</div>',unsafe_allow_html=True)
+            st.markdown(f'<p style="font-size:13px;color:{TEXT2};line-height:1.65;margin-bottom:12px;">The amber nodes carry the most connective load — they sit on the most paths between other people in the network. <b>Activity 5</b> asks: <em>who are the trusted connectors and bridge actors?</em> These nodes are the data version of that question.</p>',unsafe_allow_html=True)
+
+            bw_sorted = sorted(bw_anon.items(), key=lambda x:-x[1])[:5] if bw_anon else []
+            for rank,(node,score) in enumerate(bw_sorted):
+                in_d = indeg_anon.get(node,0)
+                color = AMBER if score/max(max_bw,0.001)>0.15 else INDIGO
+                st.markdown(f'''<div style="background:{SURFACE2};border-left:3px solid {color};padding:10px 14px;margin-bottom:8px;border-radius:0 4px 4px 0;">
+                    <div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:{color};text-transform:uppercase;letter-spacing:0.1em;">Bridge #{rank+1}</div>
+                    <div style="font-family:IBM Plex Sans,sans-serif;font-size:13px;color:{TEXT};font-weight:500;margin:3px 0;">{node}</div>
+                    <div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:{TEXT3};">betweenness {score:.3f} · named by {in_d}</div>
+                </div>''', unsafe_allow_html=True)
+
+            st.markdown(f'<div style="background:#FFF8E7;border-left:3px solid {AMBER};padding:12px 16px;border-radius:0 4px 4px 0;margin-top:8px;"><div style="font-family:IBM Plex Mono,monospace;font-size:9px;color:{AMBER};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:4px;">Activity 5 · Prompt</div><div style="font-family:IBM Plex Sans,sans-serif;font-size:12px;color:{TEXT};line-height:1.6;font-style:italic;">"Who helps connect sectors? Who accelerates collaboration? Who bridges local and regional scales?"</div></div>',unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── Cluster characterization ─────────────────────────────────────────
+        communities = a.get("communities", [])
+        if len(communities) > 1:
+            st.markdown(f'<div class="eyebrow" style="color:{TEAL};">Cluster characterization</div>',unsafe_allow_html=True)
+            st.markdown(f'<p style="font-size:13px;color:{TEXT2};margin-bottom:16px;">Each cluster is characterized by the attributes most common among its members — sector, geography, and relationship types.</p>',unsafe_allow_html=True)
+
+            # Build a name→attributes lookup from ego_df and edge_df
+            name_attrs = {}
+            if not ego_df.empty and "Name" in ego_df.columns:
+                for _,r in ego_df.iterrows():
+                    nm = str(r.get("Name","")).strip()
+                    if nm:
+                        name_attrs[nm] = {
+                            "sector": str(r.get("Sector","")).strip(),
+                            "geo": str(r.get("Geography","")).strip(),
+                        }
+
+            # Dominant rel types per cluster
+            rel_by_name = {}
+            if not edge_df.empty and "Relationship Type(s)" in edge_df.columns:
+                for _,r in edge_df.iterrows():
+                    frm = str(r.get("From","")).strip()
+                    rt = str(r.get("Relationship Type(s)",""))
+                    if frm and rt and rt != "nan":
+                        rel_by_name[frm] = rt
+
+            cluster_cols = st.columns(min(len(communities[:4]), 4))
+            cluster_colors = [INDIGO, TEAL, AMBER, GREEN]
+            for i, comm in enumerate(communities[:4]):
+                with cluster_cols[i]:
+                    color = cluster_colors[i % len(cluster_colors)]
+                    members = [m for m in comm if m]
+                    sectors = [name_attrs.get(m,{}).get("sector","") for m in members if name_attrs.get(m,{}).get("sector","")]
+                    geos = [name_attrs.get(m,{}).get("geo","") for m in members if name_attrs.get(m,{}).get("geo","")]
+                    rels = []
+                    for m in members:
+                        rt = rel_by_name.get(m,"")
+                        if rt: rels.extend([t.strip() for t in rt.split(";") if t.strip()])
+
+                    top_sector = collections.Counter(sectors).most_common(1)[0][0] if sectors else "—"
+                    top_geo = collections.Counter(geos).most_common(1)[0][0] if geos else "—"
+                    top_rel = collections.Counter(rels).most_common(1)[0][0].split("/")[0].strip() if rels else "—"
+
+                    # Infer a cluster character from sector + relationship type
+                    char = ""
+                    if "Faith" in top_sector or "Church" in top_sector: char = "Faith-rooted"
+                    elif "Education" in top_sector: char = "Education-anchored"
+                    elif "Non-profit" in top_sector or "Civic" in top_sector: char = "Civic/nonprofit"
+                    elif "Higher Ed" in top_sector: char = "Higher education"
+                    else: char = top_sector[:16] if top_sector != "—" else "Mixed"
+
+                    st.markdown(f'''<div style="background:{SURFACE2};border-top:3px solid {color};padding:16px;border-radius:0 0 6px 6px;">
+                        <div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:{color};letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px;">Cluster {i+1} · {len(members)} members</div>
+                        <div style="font-family:Barlow Condensed,sans-serif;font-size:20px;font-weight:800;color:{INK};margin-bottom:10px;">{char}</div>
+                        <div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:{TEXT3};line-height:1.8;">
+                            Top sector: <span style="color:{TEXT2};">{top_sector[:24]}</span><br>
+                            Top geo: <span style="color:{TEXT2};">{top_geo[:24]}</span><br>
+                            Top rel type: <span style="color:{TEXT2};">{top_rel[:24]}</span>
+                        </div>
+                    </div>''', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── Preview of projectable HTML ──────────────────────────────────────
+        st.markdown(f'<div class="eyebrow" style="color:{TEAL};">Full projectable document preview</div>',unsafe_allow_html=True)
+        html_preview = build_insights_html(a, ego_df, edge_df)
+        st.components.v1.html(html_preview, height=600, scrolling=True)
