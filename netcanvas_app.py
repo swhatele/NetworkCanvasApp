@@ -509,6 +509,16 @@ def build_insights_html(a,ego_df,edge_df):
         <div class="q-prompt">{qp}</div>
     </div>''' for qt,qs,qp in questions])
 
+    dc = a.get('depth_counts', {})
+    def _seg(label, bg):
+        v = dc.get(label, 0)
+        if not v: return ''
+        return f'<div class="depth-seg" style="flex:{v};background:{bg};">{v}</div>'
+    dc_awareness_html    = _seg('Awareness',    '#13123a')
+    dc_connection_html   = _seg('Connection',   '#1e1c4a')
+    dc_cooperation_html  = _seg('Cooperation',  '#2825BE')
+    dc_collaboration_html= _seg('Collaboration','#4a47d6')
+
     html=f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -636,10 +646,10 @@ body{{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:white;}
   <div class="depth-bar">
     <div class="depth-bar-label">Distribution across all reported connections</div>
     <div class="depth-segments">
-      {f'<div class="depth-seg" style="flex:{a.get("depth_counts",{{}}).get("Awareness",0)};background:#13123a;">{a.get("depth_counts",{{}}).get("Awareness",0)}</div>' if a.get("depth_counts",{}).get("Awareness",0) else ""}
-      {f'<div class="depth-seg" style="flex:{a.get("depth_counts",{{}}).get("Connection",0)};background:#1e1c4a;">{a.get("depth_counts",{{}}).get("Connection",0)}</div>' if a.get("depth_counts",{}).get("Connection",0) else ""}
-      {f'<div class="depth-seg" style="flex:{a.get("depth_counts",{{}}).get("Cooperation",0)};background:#2825BE;">{a.get("depth_counts",{{}}).get("Cooperation",0)}</div>' if a.get("depth_counts",{}).get("Cooperation",0) else ""}
-      {f'<div class="depth-seg" style="flex:{a.get("depth_counts",{{}}).get("Collaboration",0)};background:#4a47d6;">{a.get("depth_counts",{{}}).get("Collaboration",0)}</div>' if a.get("depth_counts",{}).get("Collaboration",0) else ""}
+      {dc_awareness_html}
+      {dc_connection_html}
+      {dc_cooperation_html}
+      {dc_collaboration_html}
     </div>
     <div class="depth-legend">
       <div class="dl-item"><div class="dl-dot" style="background:#13123a;"></div>Awareness</div>
