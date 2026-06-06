@@ -527,10 +527,8 @@ def build_insights_html(a, ego_df, edge_df):
         for s, c in ego_df["Sector"].value_counts().items():
             sector_html += '<div class="chip">' + str(s) + ' <span class="chip-n">' + str(c) + '</span></div>'
 
-    # ── SVG US Map ─────────────────────────────────────────────────────────
-    map_svg = ""  # No static map — using bar chart instead
-
-        # Geo bar fallback (also used as supplementary list)
+    # ── Geography bar chart ───────────────────────────────────────────────
+    geo_counts = a.get("geo_counts", {})
     geo_html = ""
     if geo_counts:
         max_geo = max(geo_counts.values())
