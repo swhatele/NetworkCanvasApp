@@ -484,25 +484,26 @@ def build_insights_html(a, ego_df, edge_df):
     """Build a projectable, fully anonymized HTML document for room display."""
 
     # ── Pre-compute all values ─────────────────────────────────────────────
-    n_resp        = a.get("n_respondents", 0)
-    n_nodes       = a.get("n_nodes", 0)
-    n_edges       = a.get("n_edges", 0)
-    density       = a.get("density", 0)
-    pct_deep      = a.get("pct_deep", 0)
-    pct_trust     = a.get("pct_trust", 0)
-    pct_energy    = a.get("pct_energy", 0)
-    pct_creativity= a.get("pct_creativity", 0)
-    pct_support   = a.get("pct_support", 0)
-    pct_low_trust = a.get("pct_low_trust", 0)
-    pct_low_energy= a.get("pct_low_energy", 0)
-    pct_balanced  = a.get("pct_balanced", 0)
-    pct_frequent  = a.get("pct_frequent", 0)
-    n_communities = a.get("n_communities", 0)
-    n_geographies = a.get("n_geographies", 0)
-    n_isolated    = a.get("n_survey_isolated", 0)
-    n_periphery   = a.get("n_periphery", 0)
-    top_rel       = a.get("top_rel_type", "Peer Learning / Knowledge Exchange")
-    communities   = a.get("communities", [])
+    n_resp         = a.get("n_respondents", 0)
+    n_nodes        = a.get("n_nodes", 0)
+    n_edges        = a.get("n_edges", 0)
+    density        = a.get("density", 0)
+    pct_deep       = a.get("pct_deep", 0)
+    pct_trust      = a.get("pct_trust", 0)
+    pct_energy     = a.get("pct_energy", 0)
+    pct_creativity = a.get("pct_creativity", 0)
+    pct_support    = a.get("pct_support", 0)
+    pct_low_trust  = a.get("pct_low_trust", 0)
+    pct_low_energy = a.get("pct_low_energy", 0)
+    pct_balanced   = a.get("pct_balanced", 0)
+    pct_frequent   = a.get("pct_frequent", 0)
+    pct_infrequent = a.get("pct_infrequent", 0)
+    n_communities  = a.get("n_communities", 0)
+    n_geographies  = a.get("n_geographies", 0)
+    n_isolated     = a.get("n_survey_isolated", 0)
+    n_periphery    = a.get("n_periphery", 0)
+    top_rel        = a.get("top_rel_type", "Peer Learning / Knowledge Exchange")
+    communities    = a.get("communities", [])
 
     # ── Depth bar segments ─────────────────────────────────────────────────
     dc = a.get("depth_counts", {})
@@ -515,16 +516,92 @@ def build_insights_html(a, ego_df, edge_df):
     dc_cooperation_html   = _seg("Cooperation",  "#2825BE")
     dc_collaboration_html = _seg("Collaboration","#4a47d6")
 
-    # ── Sectors (anonymized — just names, no counts that could identify) ──
+    # ── Sectors ────────────────────────────────────────────────────────────
     sector_html = ""
     if "Sector" in ego_df.columns:
-        sc = ego_df["Sector"].value_counts()
-        for s, c in sc.items():
+        for s, c in ego_df["Sector"].value_counts().items():
             sector_html += '<div class="chip">' + str(s) + ' <span class="chip-n">' + str(c) + '</span></div>'
 
-    # ── Geography bars ─────────────────────────────────────────────────────
-    geo_html = ""
+    # ── SVG US Map ─────────────────────────────────────────────────────────
+    STATE_MAP = {
+        "atlanta":"GA","georgia":"GA","ga":"GA","south atlanta":"GA",
+        "chicago":"IL","illinois":"IL","il":"IL",
+        "minneapolis":"MN","minnesota":"MN","twin cities":"MN","mn":"MN",
+        "kansas":"KS","kansas city":"KS","ks":"KS",
+        "oregon":"OR","portland":"OR","or":"OR",
+        "alabama":"AL","birmingham":"AL","al":"AL",
+        "new jersey":"NJ","nj":"NJ","eastern pa":"PA","pennsylvania":"PA","pa":"PA",
+        "north carolina":"NC","nc":"NC","asheville":"NC","charlotte":"NC","black mountain":"NC",
+        "new york":"NY","ny":"NY",
+        "texas":"TX","tx":"TX",
+        "california":"CA","ca":"CA","los angeles":"CA","san francisco":"CA",
+        "washington":"WA","wa":"WA","seattle":"WA",
+        "colorado":"CO","co":"CO","denver":"CO",
+        "ohio":"OH","oh":"OH",
+        "michigan":"MI","mi":"MI","detroit":"MI",
+        "tennessee":"TN","tn":"TN","nashville":"TN",
+        "virginia":"VA","va":"VA",
+        "maryland":"MD","md":"MD","baltimore":"MD",
+        "florida":"FL","fl":"FL","miami":"FL",
+        "massachusetts":"MA","ma":"MA","boston":"MA",
+        "arizona":"AZ","az":"AZ","phoenix":"AZ",
+        "missouri":"MO","mo":"MO","st. louis":"MO","saint louis":"MO",
+        "indiana":"IN","in":"IN","indianapolis":"IN",
+        "wisconsin":"WI","wi":"WI","milwaukee":"WI",
+    }
+    # Approximate state centroids for SVG (x,y on 960x600 AlbersUSa-like projection)
+    STATE_POS = {
+        "AL":(600,360),"AK":(120,480),"AZ":(220,340),"AR":(550,340),
+        "CA":(110,270),"CO":(290,280),"CT":(820,210),"DE":(790,250),
+        "FL":(660,420),"GA":(640,360),"HI":(240,520),"ID":(210,190),
+        "IL":(570,250),"IN":(610,250),"IA":(530,230),"KS":(460,290),
+        "KY":(630,290),"LA":(550,390),"ME":(860,160),"MD":(770,260),
+        "MA":(840,200),"MI":(620,210),"MN":(510,170),"MS":(580,370),
+        "MO":(540,290),"MT":(260,160),"NE":(440,250),"NV":(175,265),
+        "NH":(840,185),"NJ":(800,240),"NM":(280,340),"NY":(780,210),
+        "NC":(710,310),"ND":(440,165),"OH":(660,240),"OK":(470,330),
+        "OR":(145,200),"PA":(740,230),"RI":(845,210),"SC":(680,340),
+        "SD":(440,210),"TN":(620,320),"TX":(440,390),"UT":(240,280),
+        "VT":(820,185),"VA":(730,280),"WA":(155,160),"WV":(700,265),
+        "WI":(560,200),"WY":(295,220),
+    }
+    import collections as _col
     geo_counts = a.get("geo_counts", {})
+    state_counts = _col.defaultdict(int)
+    for geo, cnt in geo_counts.items():
+        key = str(geo).lower().strip()
+        matched = None
+        for k, v in STATE_MAP.items():
+            if k in key:
+                matched = v; break
+        if matched:
+            state_counts[matched] += cnt
+        elif len(key) == 2 and key.upper().isalpha():
+            state_counts[key.upper()] += cnt
+
+    map_svg = ""
+    if state_counts:
+        max_sc = max(state_counts.values())
+        svg_parts = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" style="width:100%;max-width:800px;display:block;margin:0 auto;">']
+        svg_parts.append('<rect width="960" height="600" fill="#0f0e2e"/>')
+        # Draw all states as circles at their centroid (simplified — no path data needed)
+        for state, (cx, cy) in STATE_POS.items():
+            count = state_counts.get(state, 0)
+            if count > 0:
+                intensity = 0.3 + 0.7 * (count / max_sc)
+                r = 16 + int(24 * (count / max_sc))
+                svg_parts.append('<circle cx="' + str(cx) + '" cy="' + str(cy) + '" r="' + str(r) + '" fill="rgba(40,37,190,' + str(round(intensity,2)) + ')" stroke="#2825BE" stroke-width="1"/>')
+                svg_parts.append('<text x="' + str(cx) + '" y="' + str(cy+4) + '" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="white">' + state + '</text>')
+            else:
+                svg_parts.append('<circle cx="' + str(cx) + '" cy="' + str(cy) + '" r="8" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.1)" stroke-width="0.5"/>')
+                svg_parts.append('<text x="' + str(cx) + '" y="' + str(cy+3) + '" text-anchor="middle" font-family="IBM Plex Mono" font-size="7" fill="rgba(255,255,255,0.2)">' + state + '</text>')
+        # Legend
+        svg_parts.append('<text x="20" y="580" font-family="IBM Plex Mono" font-size="9" fill="rgba(255,255,255,0.3)">Circle size and opacity = number of respondents. States with respondents shown in indigo.</text>')
+        svg_parts.append('</svg>')
+        map_svg = "\n".join(svg_parts)
+
+    # Geo bar fallback (also used as supplementary list)
+    geo_html = ""
     if geo_counts:
         max_geo = max(geo_counts.values())
         for g, c in list(geo_counts.items())[:8]:
@@ -532,12 +609,12 @@ def build_insights_html(a, ego_df, edge_df):
             geo_html += (
                 '<div class="geo-row">'
                 '<span class="geo-name">' + str(g) + '</span>'
-                '<span class="geo-bar"><span class="geo-fill" style="width:' + str(pct) + '%"></span></span>'
+                '<span class="geo-bar"><span class="geo-fill" style="width:' + str(pct) + '%;"></span></span>'
                 '<span class="geo-n">' + str(c) + '</span>'
                 '</div>'
             )
 
-    # ── Clusters — just sizes, no sector breakdown (avoids fingerprinting) ─
+    # ── Clusters ───────────────────────────────────────────────────────────
     comm_html = ""
     comm_colors = ["#2825BE", "#0C7A7A", "#EB9001", "#2E9E5B"]
     for i, c in enumerate(communities[:4]):
@@ -547,7 +624,7 @@ def build_insights_html(a, ego_df, edge_df):
             '<div class="comm-card" style="border-top:3px solid ' + color + ';">'
             '<div class="comm-num" style="color:' + color + ';">Cluster ' + str(i+1) + '</div>'
             '<div class="comm-size">' + str(size) + ' member' + ('s' if size != 1 else '') + '</div>'
-            '<div class="comm-desc">A group of people who are more connected to each other than to the rest of the network.</div>'
+            '<div class="comm-desc">A group more connected internally than to the rest of the network.</div>'
             '</div>'
         )
 
@@ -561,78 +638,60 @@ def build_insights_html(a, ego_df, edge_df):
             '<div class="skill-row">'
             '<div class="skill-name">' + m["skill"] + '</div>'
             '<div class="skill-bars">'
-            '<div class="skill-bar-label">Need</div>'
+            '<div class="skill-bar-label">Need (' + str(need) + ')</div>'
             '<div class="skill-bar-wrap"><div class="skill-bar-fill" style="width:' + w_need + ';background:#EB9001;"></div></div>'
-            '<div class="skill-bar-label">Offer</div>'
+            '<div class="skill-bar-label">Offer (' + str(off) + ')</div>'
             '<div class="skill-bar-wrap"><div class="skill-bar-fill" style="width:' + w_off + ';background:#0C7A7A;"></div></div>'
             '</div>'
-            '<div class="skill-meta">' + str(need) + ' need · ' + str(off) + ' offer</div>'
             '</div>'
         )
 
     # ── Anonymized network SVG ─────────────────────────────────────────────
     network_svg = ""
     try:
-        import networkx as nx, math as _math
+        import networkx as _nx, math as _math
         if len(edge_df) > 0:
-            G_html = nx.DiGraph()
+            G_html = _nx.DiGraph()
             for _, r in edge_df.iterrows():
                 frm = str(r.get("From","")).strip(); to = str(r.get("To","")).strip()
                 if frm and to and frm not in ("nan","None") and to not in ("nan","None") and frm != to:
                     G_html.add_edge(frm, to)
             if len(G_html.nodes) > 1:
                 UG = G_html.to_undirected()
-                pos = nx.spring_layout(UG, seed=42, k=2.4/_math.sqrt(max(len(G_html.nodes),1)))
-                bw  = nx.betweenness_centrality(G_html)
+                pos = _nx.spring_layout(UG, seed=42, k=2.4/_math.sqrt(max(len(G_html.nodes),1)))
+                bw  = _nx.betweenness_centrality(G_html)
                 deg = dict(G_html.degree())
                 indeg = dict(G_html.in_degree())
                 max_bw  = max(bw.values())  if bw  else 1
                 max_deg = max(deg.values()) if deg else 1
-
-                # Scale to SVG coords
                 all_x = [p[0] for p in pos.values()]; all_y = [p[1] for p in pos.values()]
                 min_x,max_x = min(all_x),max(all_x); min_y,max_y = min(all_y),max(all_y)
-                W,H,PAD = 800,480,40
+                W,H,PAD = 800,460,48
                 def sx(x): return PAD + (x-min_x)/(max_x-min_x+0.001)*(W-2*PAD)
                 def sy(y): return PAD + (y-min_y)/(max_y-min_y+0.001)*(H-2*PAD)
-
                 svg_parts = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + str(W) + ' ' + str(H) + '" style="width:100%;background:#0f0e2e;border-radius:4px;">']
-
-                # Edges — amber for bridge edges, indigo otherwise
                 bridge_set = {n for n in G_html.nodes if bw.get(n,0)/max(max_bw,0.001) > 0.12}
                 for u,v in G_html.edges():
-                    x1,y1 = sx(pos[u][0]),sy(pos[u][1])
-                    x2,y2 = sx(pos[v][0]),sy(pos[v][1])
+                    x1,y1=sx(pos[u][0]),sy(pos[u][1]); x2,y2=sx(pos[v][0]),sy(pos[v][1])
                     is_bridge = u in bridge_set or v in bridge_set
-                    color  = "rgba(235,144,1,0.5)"  if is_bridge else "rgba(40,37,190,0.25)"
-                    width  = "1.6" if is_bridge else "0.9"
+                    color = "rgba(235,144,1,0.5)" if is_bridge else "rgba(40,37,190,0.22)"
+                    width = "1.8" if is_bridge else "0.9"
                     svg_parts.append('<line x1="' + str(round(x1,1)) + '" y1="' + str(round(y1,1)) + '" x2="' + str(round(x2,1)) + '" y2="' + str(round(y2,1)) + '" stroke="' + color + '" stroke-width="' + width + '"/>')
-
-                # Nodes
                 for n in G_html.nodes:
-                    cx,cy = sx(pos[n][0]),sy(pos[n][1])
+                    cx,cy=sx(pos[n][0]),sy(pos[n][1])
                     bw_norm = bw.get(n,0)/max(max_bw,0.001)
                     r = 5 + 14*(deg.get(n,0)/max(max_deg,1))
-                    if indeg.get(n,0) == 0:
-                        fill = "#CF4C38"   # isolated — terra
-                    elif bw_norm > 0.12:
-                        fill = "#EB9001"   # bridge — amber
+                    if indeg.get(n,0) == 0: fill = "#CF4C38"
+                    elif bw_norm > 0.12:    fill = "#EB9001"
                     else:
-                        opacity = 0.4 + 0.6*(deg.get(n,0)/max(max_deg,1))
-                        fill = "rgba(40,37,190," + str(round(opacity,2)) + ")"
+                        op = 0.35 + 0.65*(deg.get(n,0)/max(max_deg,1))
+                        fill = "rgba(40,37,190," + str(round(op,2)) + ")"
                     svg_parts.append('<circle cx="' + str(round(cx,1)) + '" cy="' + str(round(cy,1)) + '" r="' + str(round(r,1)) + '" fill="' + fill + '" stroke="white" stroke-width="1.2"/>')
-
-                # Legend
-                legend_items = [
-                    ("#EB9001", "High bridge role"),
-                    ("rgba(40,37,190,0.85)", "Connected node"),
-                    ("#CF4C38", "Not yet named by others"),
-                ]
-                lx = 12
-                for lcolor, llabel in legend_items:
-                    svg_parts.append('<circle cx="' + str(lx) + '" cy="' + str(H-16) + '" r="5" fill="' + lcolor + '"/>')
-                    svg_parts.append('<text x="' + str(lx+12) + '" y="' + str(H-12) + '" font-family="IBM Plex Mono" font-size="9" fill="rgba(255,255,255,0.4)">' + llabel + '</text>')
-                    lx += 160
+                lx = 16
+                for lc, ll in [("#EB9001","High bridge role"), ("rgba(40,37,190,0.85)","Connected node"), ("#CF4C38","Not yet named by others")]:
+                    svg_parts.append('<circle cx="' + str(lx) + '" cy="' + str(H-14) + '" r="5" fill="' + lc + '"/>')
+                    svg_parts.append('<text x="' + str(lx+12) + '" y="' + str(H-10) + '" font-family="IBM Plex Mono" font-size="9" fill="rgba(255,255,255,0.35)">' + ll + '</text>')
+                    lx += 170
                 svg_parts.append("</svg>")
                 network_svg = "\n".join(svg_parts)
     except Exception:
@@ -640,15 +699,12 @@ def build_insights_html(a, ego_df, edge_df):
 
     # ── Seven-component framing ────────────────────────────────────────────
     comp_rows = [
-        ("#2825BE", "2 · Recognition",
-         "Density of weak ties",
+        ("#2825BE", "2 · Recognition", "Density of weak ties",
          "How many people in this network know each other — and are known by each other. Recognition is the on-ramp to every deeper relational component."),
-        ("#0C7A7A", "4 · Mutual Obligation",
-         "Trust under stress · Reciprocity of care",
-         "What recognition becomes when activated by trust. The network data measures this directly through trust, energy, support, and reciprocity scores."),
-        ("#EB9001", "6 · Institutional Anchors",
-         "Distribution across function",
-         "The organizations that hold relational life together. Sector distribution tells us whether coverage spans the full range of functions."),
+        ("#0C7A7A", "4 · Mutual Obligation", "Trust under stress · Reciprocity of care",
+         "What recognition becomes when activated by trust. The network data measures this directly: trust, energy, support, and reciprocity scores reflect whether mutual obligation is real or only claimed."),
+        ("#EB9001", "6 · Institutional Anchors", "Distribution across function",
+         "The organizations that hold relational life together. Sector distribution tells us whether coverage spans the full range of functions — or concentrates in a few."),
     ]
     comp_html = ""
     for color, title, attr, desc in comp_rows:
@@ -663,7 +719,7 @@ def build_insights_html(a, ego_df, edge_df):
     # ── Quality cells ──────────────────────────────────────────────────────
     def qcell(label, pct, low_pct, high_msg, low_msg):
         color = "#2E9E5B" if pct >= 60 else ("#EB9001" if pct >= 40 else "#CF4C38")
-        sub = high_msg if pct >= 60 else (low_msg.replace("{low}", str(low_pct)))
+        sub = high_msg if pct >= 60 else low_msg.replace("{low}", str(low_pct))
         return (
             '<div class="quality-cell">'
             '<div class="qv" style="color:' + color + ';">' + str(pct) + '%</div>'
@@ -672,11 +728,44 @@ def build_insights_html(a, ego_df, edge_df):
             '</div>'
         )
     quality_html = (
-        qcell("Trust",      pct_trust,      pct_low_trust,  "Most connections feel trustworthy.",       "{low}% of connections score low on trust — the most diagnostic signal in the set.") +
-        qcell("Energy",     pct_energy,     pct_low_energy, "Connections feel generative and activating.", "{low}% feel low-energy — worth asking which relationships, and why.") +
-        qcell("Support",    pct_support,    0,              "Strong sense of mutual support.",          "Support is unevenly distributed — some relationships carry more weight.") +
-        qcell("Creativity", pct_creativity, 0,              "Connections feel creatively alive.",       "Creative spark is lower than other dimensions — what makes some relationships more generative?")
+        qcell("Trust",      pct_trust,      pct_low_trust,
+              "Most connections feel trustworthy.",
+              "{low}% score low — Cross &amp; Parker identify trust as the dimension most likely to suppress knowledge flow even when formal ties exist.") +
+        qcell("Energy",     pct_energy,     pct_low_energy,
+              "Connections feel generative and activating.",
+              "{low}% feel low-energy. Cross &amp; Parker found de-energizing relationships reduce engagement across the whole network, not just the dyad.") +
+        qcell("Support",    pct_support,    0,
+              "Strong sense of mutual support across the network.",
+              "Support is unevenly distributed — some relationships carry more weight than others.") +
+        qcell("Creativity", pct_creativity, 0,
+              "Connections feel creatively alive.",
+              "Creative spark is lower than other dimensions — worth asking what conditions produce it.")
     )
+
+    # ── Frequency insight ──────────────────────────────────────────────────
+    freq_color = "#2E9E5B" if pct_frequent >= 50 else ("#EB9001" if pct_frequent >= 30 else "#CF4C38")
+    if pct_frequent >= 60:
+        freq_insight = "Most connections are high-frequency — weekly or more. This is a dense relational network in terms of contact, but frequency alone doesn't predict quality. Cross &amp; Parker showed that some of the most frequent contacts are the most draining."
+    elif pct_frequent >= 30:
+        freq_insight = str(pct_frequent) + "% of connections are weekly or more. The remaining " + str(pct_infrequent) + "% are monthly or less. Infrequent connections aren't necessarily weak — but they are at risk of fading without intentional maintenance."
+    else:
+        freq_insight = "Most connections are infrequent — monthly or less. Frequency is one of the most reliable predictors of relationship depth over time. The network has dormant capacity that intentional convening could activate."
+
+    # ── Expansion question HTML ────────────────────────────────────────────
+    # Collect expansion responses from ego_df if available
+    expansion_html = ""
+    if "Expansion / Other Members" in ego_df.columns:
+        exp_vals = ego_df["Expansion / Other Members"].dropna()
+        exp_vals = exp_vals[exp_vals.astype(str).str.strip().str.len() > 2]
+        if len(exp_vals) > 0:
+            expansion_html = (
+                '<div class="expansion-note">'
+                '<div class="exp-label">Members named by respondents as missing from the network</div>'
+                '<p class="exp-body">Some respondents identified organizations or people they wish TNN had access to. '
+                'These responses are shared only in aggregate — no individual attribution — and only where respondents consented to sharing.</p>'
+                '<div class="exp-count">' + str(len(exp_vals)) + ' respondent' + ('s' if len(exp_vals) != 1 else '') + ' offered suggestions</div>'
+                '</div>'
+            )
 
     # ── Questions for the room ─────────────────────────────────────────────
     questions = []
@@ -690,20 +779,26 @@ def build_insights_html(a, ego_df, edge_df):
         questions.append(("Reciprocity", "Many connections flow primarily in one direction.",
             "Where do you notice imbalance in your working relationships? What would more mutual exchange look like?"))
     if n_isolated > 0:
-        questions.append(("Isolation", "Some members of this network have not yet been named by others.",
+        questions.append(("Isolation", "Some members have not yet been named by others.",
             "Who in this room do you know least well? What has kept you from connecting?"))
     if n_geographies > 2:
         questions.append(("Geography", "This network spans " + str(n_geographies) + " geographic areas.",
             "Where does distance make collaboration harder? What practices help you stay connected across geography?"))
     if n_communities > 1:
-        questions.append(("Clusters", "The network appears to have " + str(n_communities) + " distinct clusters.",
+        questions.append(("Clusters", "The network has " + str(n_communities) + " distinct clusters.",
             "Which groups in this room interact least with each other? What sits between them?"))
     if pct_deep < 50:
         questions.append(("Depth", "Most connections are still at early stages.",
             "Which relationships here have real potential to deepen? What would cooperation or collaboration actually look like?"))
+    if pct_frequent < 40:
+        questions.append(("Frequency", "Many connections are infrequent — monthly or less.",
+            "What would it take to be in more regular contact? What rhythms — weekly, seasonal, annual — already exist that could carry more?"))
     if not questions:
         questions = [("Ecosystem", "The network is taking shape.",
             "Who in this room do you know least well? What would it mean to strengthen that connection?")]
+    # Always add expansion question at end
+    questions.append(("Expanding the ecosystem", "What's missing from this network?",
+        "Is there an organization, sector, or type of expertise you wish TNN had access to? What would change if they were in the room?"))
 
     q_html = ""
     for qt, qs, qp in questions:
@@ -726,12 +821,11 @@ def build_insights_html(a, ego_df, edge_df):
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{--indigo:#2825BE;--amber:#EB9001;--teal:#0C7A7A;--terra:#CF4C38;--green:#2E9E5B;
-  --ink:#080818;--ink2:#0f0e2e;--ink3:#13123a;--s2:#F5F7F6;--border:#e2e5e3;
-  --text:#111827;--text2:#4b5563;--text3:#9ca3af;}
+  --ink:#080818;--ink2:#0f0e2e;--ink3:#13123a;}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:white;}
 .page{max-width:1120px;margin:0 auto;padding:64px 48px;}
-.cover{min-height:100vh;display:flex;flex-direction:column;justify-content:flex-end;padding:96px 48px;background:var(--ink);border-bottom:1px solid rgba(255,255,255,0.08);}
+.cover{min-height:100vh;display:flex;flex-direction:column;justify-content:flex-end;padding:96px 48px;border-bottom:1px solid rgba(255,255,255,0.08);}
 .cover-eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:var(--amber);margin-bottom:24px;}
 .cover-title{font-family:'Barlow Condensed',sans-serif;font-size:clamp(52px,7vw,96px);font-weight:900;line-height:0.95;letter-spacing:-0.02em;text-transform:uppercase;color:white;margin-bottom:24px;}
 .cover-sub{font-family:'IBM Plex Sans',sans-serif;font-size:18px;color:rgba(255,255,255,0.5);max-width:520px;line-height:1.6;}
@@ -740,58 +834,67 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:white;}
 .section:last-child{border-bottom:none;}
 .section-eyebrow{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--amber);margin-bottom:12px;}
 .section-title{font-family:'Barlow Condensed',sans-serif;font-size:clamp(32px,4vw,52px);font-weight:800;text-transform:uppercase;letter-spacing:-0.01em;color:white;margin-bottom:32px;line-height:1.1;}
-.two-col{display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:start;}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start;}
 .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;margin:32px 0;}
 .stat-cell{background:var(--ink2);padding:32px 24px;}
 .stat-cell .sv{font-family:'Barlow Condensed',sans-serif;font-size:56px;font-weight:900;line-height:1;color:var(--indigo);}
-.stat-cell .sl{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;margin-top:6px;}
+.stat-cell .sl{font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.1em;margin-top:6px;}
 .quality-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:2px;margin:24px 0;}
 .quality-cell{background:var(--ink2);padding:24px;display:flex;align-items:center;gap:20px;}
 .quality-cell .qv{font-family:'Barlow Condensed',sans-serif;font-size:44px;font-weight:800;min-width:80px;line-height:1;}
-.quality-cell .qinfo .ql{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;}
-.quality-cell .qinfo .qsub{font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.6);margin-top:4px;line-height:1.5;}
+.quality-cell .qinfo .ql{font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.1em;}
+.quality-cell .qinfo .qsub{font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.55);margin-top:4px;line-height:1.5;}
+.kesc-note{background:var(--ink3);border-left:3px solid var(--teal);padding:20px 24px;margin:24px 0;}
+.kesc-note .kn-label{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--teal);letter-spacing:0.14em;text-transform:uppercase;margin-bottom:6px;}
+.kesc-note .kn-text{font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.5);line-height:1.65;}
+.freq-cell{background:var(--ink2);padding:28px 32px;margin:24px 0;display:flex;align-items:center;gap:32px;}
+.freq-cell .fv{font-family:'Barlow Condensed',sans-serif;font-size:52px;font-weight:800;line-height:1;min-width:100px;}
+.freq-cell .fi{font-family:'IBM Plex Sans',sans-serif;font-size:14px;color:rgba(255,255,255,0.55);line-height:1.65;max-width:520px;}
 .depth-bar{background:var(--ink2);padding:32px;margin:16px 0;}
-.depth-bar-label{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px;}
+.depth-bar-label{font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px;}
 .depth-segments{display:flex;height:40px;overflow:hidden;gap:2px;}
 .depth-seg{display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-size:10px;color:white;}
 .depth-legend{display:flex;gap:24px;margin-top:12px;flex-wrap:wrap;}
-.dl-item{display:flex;align-items:center;gap:6px;font-family:'IBM Plex Sans',sans-serif;font-size:12px;color:rgba(255,255,255,0.5);}
+.dl-item{display:flex;align-items:center;gap:6px;font-family:'IBM Plex Sans',sans-serif;font-size:12px;color:rgba(255,255,255,0.4);}
 .dl-dot{width:8px;height:8px;border-radius:50%;}
 .comp-grid{display:flex;flex-direction:column;gap:2px;margin:24px 0;}
 .comp-card{background:var(--ink2);padding:24px;}
 .comp-num{font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px;}
 .comp-attr{font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:white;margin-bottom:6px;}
-.comp-desc{font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.5);line-height:1.6;}
+.comp-desc{font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.45);line-height:1.6;}
 .chip-row{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0;}
 .chip{background:var(--ink2);border:1px solid rgba(255,255,255,0.1);padding:6px 12px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.7);display:flex;align-items:center;gap:8px;}
 .chip-n{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--amber);}
 .geo-row{display:flex;align-items:center;gap:12px;margin:8px 0;}
-.geo-name{font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.7);min-width:160px;}
-.geo-bar{flex:1;height:6px;background:rgba(255,255,255,0.08);overflow:hidden;}
+.geo-name{font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.6);min-width:160px;}
+.geo-bar{flex:1;height:5px;background:rgba(255,255,255,0.07);overflow:hidden;}
 .geo-fill{height:100%;background:var(--indigo);}
-.geo-n{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3);min-width:24px;text-align:right;}
+.geo-n{font-family:'IBM Plex Mono',monospace;font-size:11px;color:rgba(255,255,255,0.3);min-width:20px;text-align:right;}
 .comm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:2px;margin:24px 0;}
 .comm-card{background:var(--ink2);padding:24px;}
 .comm-num{font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;}
 .comm-size{font-family:'Barlow Condensed',sans-serif;font-size:32px;font-weight:800;color:white;line-height:1;}
-.comm-desc{font-family:'IBM Plex Sans',sans-serif;font-size:12px;color:rgba(255,255,255,0.35);margin-top:6px;line-height:1.5;}
+.comm-desc{font-family:'IBM Plex Sans',sans-serif;font-size:12px;color:rgba(255,255,255,0.3);margin-top:6px;line-height:1.5;}
 .skill-row{margin:20px 0;}
 .skill-name{font-family:'IBM Plex Sans',sans-serif;font-size:15px;color:white;margin-bottom:8px;}
-.skill-bar-label{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px;}
+.skill-bar-label{font-family:'IBM Plex Mono',monospace;font-size:9px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px;}
 .skill-bars{margin-bottom:4px;}
 .skill-bar-wrap{height:8px;background:rgba(255,255,255,0.06);margin-bottom:3px;width:100%;}
 .skill-bar-fill{height:100%;}
-.skill-meta{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);}
-.question-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:2px;margin:24px 0;}
-.question-card{background:var(--ink2);padding:32px;}
-.q-tag{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:white;padding:3px 8px;margin-bottom:16px;}
-.q-stat{font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:12px;line-height:1.5;}
-.q-prompt{font-family:'IBM Plex Sans',sans-serif;font-size:16px;color:white;line-height:1.65;font-style:italic;}
-.network-label{font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:8px;}
+.network-label{font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(255,255,255,0.25);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:10px;}
+.expansion-note{background:var(--ink3);border:1px solid rgba(235,144,1,0.3);padding:24px;margin:24px 0;}
+.exp-label{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--amber);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:8px;}
+.exp-body{font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.5);line-height:1.65;margin-bottom:12px;}
+.exp-count{font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800;color:var(--amber);}
+.question-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:2px;margin:24px 0;}
+.question-card{background:var(--ink2);padding:28px;}
+.q-tag{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:white;padding:3px 8px;margin-bottom:14px;}
+.q-stat{font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.4);margin-bottom:10px;line-height:1.5;}
+.q-prompt{font-family:'IBM Plex Sans',sans-serif;font-size:15px;color:white;line-height:1.65;font-style:italic;}
 .closing{background:var(--ink2);padding:64px 48px;border-top:3px solid var(--amber);}
 .closing-title{font-family:'Barlow Condensed',sans-serif;font-size:44px;font-weight:800;text-transform:uppercase;color:white;margin-bottom:16px;line-height:1.1;}
-.closing-body{font-family:'IBM Plex Sans',sans-serif;font-size:16px;color:rgba(255,255,255,0.6);max-width:600px;line-height:1.7;}
-.footer{font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(255,255,255,0.2);text-align:center;padding:32px;letter-spacing:0.1em;}
+.closing-body{font-family:'IBM Plex Sans',sans-serif;font-size:16px;color:rgba(255,255,255,0.55);max-width:600px;line-height:1.7;}
+.footer{font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(255,255,255,0.15);text-align:center;padding:32px;letter-spacing:0.1em;}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
 </style>
 </head>
@@ -816,49 +919,46 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:white;}
     <div class="stat-cell"><div class="sv">""" + str(n_edges) + """</div><div class="sl">Named connections</div></div>
     <div class="stat-cell"><div class="sv">""" + str(n_communities) + """</div><div class="sl">Distinct clusters</div></div>
   </div>
-  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:15px;color:rgba(255,255,255,0.5);max-width:600px;line-height:1.7;">
+  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:15px;color:rgba(255,255,255,0.45);max-width:600px;line-height:1.7;">
     Each respondent named people they work with and rated the quality of those relationships.
-    The network you see here is built from those reports — aggregated, anonymized, and combined into a single view of the ecosystem.
+    This view is aggregated, anonymized, and combined — no individual data is shown.
   </p>
 </div>
 
-<!-- NETWORK MAP -->
 """ + ("""
+<!-- NETWORK MAP -->
 <div class="section">
   <div class="section-eyebrow">Network Structure · Anonymized</div>
   <div class="section-title">Who is connected<br>to whom</div>
-  <div class="network-label">Node size = connections &nbsp;·&nbsp; Amber = bridge role &nbsp;·&nbsp; Red = not yet named by others</div>
+  <div class="network-label">Node size = connections &nbsp;·&nbsp; Amber = bridge role &nbsp;·&nbsp; Red = not yet named by others &nbsp;·&nbsp; No names shown</div>
   """ + network_svg + """
-  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;color:rgba(255,255,255,0.35);max-width:640px;line-height:1.7;margin-top:20px;">
-    No names are shown. The structure is what matters — who sits between clusters, who carries the most connective load,
-    and where the edges are thin. The amber nodes are the people Activity 5 asks about:
-    the trusted connectors, the bridge actors, the ones who translate across worlds.
+  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;color:rgba(255,255,255,0.3);max-width:640px;line-height:1.7;margin-top:20px;">
+    The amber nodes carry the most connective load — they sit on the most paths between others.
+    These are the people Activity 5 asks about: the trusted connectors, the bridge actors, those who translate across worlds.
+    The structure matters more than the names.
   </p>
 </div>
 """ if network_svg else "") + """
 
-<!-- SEVEN COMPONENTS LENS -->
+<!-- SEVEN COMPONENTS -->
 <div class="section">
   <div class="section-eyebrow">Mapped to the seven components</div>
   <div class="section-title">What the network<br>data can say</div>
-  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:15px;color:rgba(255,255,255,0.5);max-width:640px;line-height:1.7;margin-bottom:32px;">
+  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:15px;color:rgba(255,255,255,0.45);max-width:640px;line-height:1.7;margin-bottom:32px;">
     The TNN framework identifies seven components that make a neighborhood thrive.
-    The network survey speaks most directly to three of them.
+    The network survey speaks most directly to three.
   </p>
   <div class="comp-grid">""" + comp_html + """</div>
 </div>
 
 <!-- DEPTH -->
 <div class="section">
-  <div class="section-eyebrow">Depth of Connection · Component 4 · Mutual Obligation</div>
+  <div class="section-eyebrow">Depth of Connection · Mutual Obligation</div>
   <div class="section-title">""" + str(pct_deep) + """% of connections<br>reach cooperation<br>or collaboration</div>
   <div class="depth-bar">
     <div class="depth-bar-label">Distribution across all reported connections</div>
     <div class="depth-segments">
-      """ + dc_awareness_html + """
-      """ + dc_connection_html + """
-      """ + dc_cooperation_html + """
-      """ + dc_collaboration_html + """
+      """ + dc_awareness_html + dc_connection_html + dc_cooperation_html + dc_collaboration_html + """
     </div>
     <div class="depth-legend">
       <div class="dl-item"><div class="dl-dot" style="background:#13123a;"></div>Awareness</div>
@@ -871,11 +971,35 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:white;}
 
 <!-- RELATIONAL QUALITY -->
 <div class="section">
-  <div class="section-eyebrow">Relational Quality · Component 4 · Mutual Obligation</div>
+  <div class="section-eyebrow">Relational Quality · KESC Framework</div>
   <div class="section-title">% rated "quite a bit"<br>or "a great deal"</div>
   <div class="quality-grid">""" + quality_html + """</div>
-  <p style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:rgba(255,255,255,0.3);margin-top:12px;">
-    Reciprocity: """ + str(pct_balanced) + """% of connections described as roughly balanced &nbsp;·&nbsp; """ + str(pct_frequent) + """% interact weekly or more
+  <div class="kesc-note">
+    <div class="kn-label">Source · Cross &amp; Parker (2004)</div>
+    <div class="kn-text">
+      In <em>The Hidden Power of Social Networks</em>, Cross and Parker found that what makes a network valuable is not the number of connections, but the quality of energy flowing through them.
+      They identified four dimensions — Knowledge, Energy, Safety (trust), and Credibility (support) — that predict whether a relationship generates real value or quietly drains it.
+      A frequent contact who scores low on energy and trust is not a network asset; they are a structural liability.
+      The KESC lens shifts attention from <em>who knows whom</em> to <em>what flows between them</em>.
+    </div>
+  </div>
+  <p style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:rgba(255,255,255,0.25);margin-top:12px;">
+    Reciprocity: """ + str(pct_balanced) + """% described as roughly balanced &nbsp;·&nbsp; """ + str(pct_frequent) + """% interact weekly or more
+  </p>
+</div>
+
+<!-- FREQUENCY -->
+<div class="section">
+  <div class="section-eyebrow">Frequency of Interaction</div>
+  <div class="section-title">How often<br>connections happen</div>
+  <div class="freq-cell">
+    <div class="fv" style="color:""" + freq_color + """;">""" + str(pct_frequent) + """%</div>
+    <div class="fi">""" + freq_insight + """</div>
+  </div>
+  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;color:rgba(255,255,255,0.35);max-width:600px;line-height:1.7;margin-top:8px;">
+    """ + str(pct_infrequent) + """% of connections are monthly or less. These are not lost relationships — they are dormant ones.
+    The question is whether the network has the rhythms and structures to keep them alive.
+    Rhythm &amp; Recurrence is Component 3 in the TNN framework for exactly this reason.
   </p>
 </div>
 
@@ -887,25 +1011,26 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:white;}
     <div>
       """ + ("""<div class="section-eyebrow" style="color:#0C7A7A;margin-bottom:8px;">Sectors represented</div>
       <div class="chip-row">""" + sector_html + """</div>""" if sector_html else "") + """
-      """ + ("""<div class="section-eyebrow" style="color:#0C7A7A;margin-top:24px;margin-bottom:8px;">Geographic spread · """ + str(n_geographies) + """ area""" + ("s" if n_geographies != 1 else "") + """</div>""" + geo_html if geo_html else "") + """
+      """ + ("""<div class="section-eyebrow" style="color:#0C7A7A;margin-top:28px;margin-bottom:8px;">Geographic spread · """ + str(n_geographies) + """ area""" + ("s" if n_geographies != 1 else "") + """</div>""" + geo_html if geo_html else "") + """
     </div>
     <div>
       """ + ("""<div class="section-eyebrow" style="color:#0C7A7A;margin-bottom:8px;">Network clusters</div>
       <div class="comm-grid">""" + comm_html + """</div>
-      <p style="font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.35);line-height:1.6;margin-top:12px;">
-        Clusters are groups of people more connected to each other than to the rest of the network.
-        They may reflect geography, sector, or relationship history. Activity 5 asks: what sits between them?
+      <p style="font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:rgba(255,255,255,0.3);line-height:1.6;margin-top:12px;">
+        Clusters are groups more connected internally than to the rest of the network.
+        Activity 5 asks: what sits between them?
       </p>""" if comm_html else "") + """
     </div>
   </div>
-  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;color:rgba(255,255,255,0.4);margin-top:24px;max-width:600px;line-height:1.7;">
-    The dominant relationship type is <strong style="color:rgba(255,255,255,0.7);">""" + top_rel + """</strong>.
+  """ + ("""<div class="section-eyebrow" style="color:#0C7A7A;margin-top:32px;margin-bottom:8px;">Geographic distribution</div>""" + map_svg if map_svg else "") + """
+  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;color:rgba(255,255,255,0.3);margin-top:24px;max-width:600px;line-height:1.7;">
+    The dominant relationship type is <strong style="color:rgba(255,255,255,0.6);">""" + top_rel + """</strong>.
     """ + ("The network spans " + str(n_geographies) + " geographic areas — distance shapes who stays connected." if n_geographies > 2 else "") + """
   </p>
 </div>
 
-<!-- GAPS -->
 """ + ("""
+<!-- GAPS -->
 <div class="section">
   <div class="section-eyebrow" style="color:#CF4C38;">Gaps &amp; Opportunities</div>
   <div class="section-title">Where the network<br>could be stronger</div>
@@ -914,15 +1039,16 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:white;}
     """ + skill_html + """
   </div>""" if skill_html else "") + """
   """ + ("""<div style="display:inline-block;background:#CF4C38;padding:4px 12px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:white;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:12px;">Potential isolation</div>
-  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;color:rgba(255,255,255,0.6);max-width:580px;line-height:1.7;">""" + str(n_isolated + n_periphery) + """ people in this network appear in only one person's named connections. They may be underconnected relative to their potential role in the ecosystem.</p>""" if (n_isolated + n_periphery) > 0 else "") + """
+  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;color:rgba(255,255,255,0.5);max-width:580px;line-height:1.7;">""" + str(n_isolated + n_periphery) + """ people appear in only one person's named connections. They may be underconnected relative to their potential role.</p>""" if (n_isolated + n_periphery) > 0 else "") + """
+  """ + expansion_html + """
 </div>
-""" if (skill_html or (n_isolated + n_periphery) > 0) else "") + """
+""" if (skill_html or (n_isolated + n_periphery) > 0 or expansion_html) else "") + """
 
 <!-- QUESTIONS -->
 <div class="section">
   <div class="section-eyebrow">For the room · Activity 5</div>
   <div class="section-title">What the data<br>can't answer alone</div>
-  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:15px;color:rgba(255,255,255,0.5);max-width:580px;line-height:1.7;margin-bottom:32px;">
+  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:15px;color:rgba(255,255,255,0.45);max-width:580px;line-height:1.7;margin-bottom:32px;">
     These questions emerge from the network data. They are not conclusions — they are starting points.
     The ecosystem becomes visible when people in the room name what the data cannot.
   </p>
