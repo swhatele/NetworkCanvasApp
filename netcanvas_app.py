@@ -240,7 +240,8 @@ def build_graph(edge_df):
     if edge_df.empty: return G
     for _,r in edge_df.iterrows():
         frm=str(r["From"]).strip(); to=str(r["To"]).strip()
-        if not frm or not to: continue
+        if not frm or not to or frm in ("nan","None") or to in ("nan","None"): continue
+        if frm==to: continue  # skip self-loops
         if G.has_edge(frm,to): G[frm][to]["weight"]=G[frm][to].get("weight",1)+1
         else: G.add_edge(frm,to,weight=1)
     return G
@@ -413,9 +414,15 @@ def compute_analytics(ego_df,edge_df,G,pre_df=None):
 
     # Communities
     try:
-        comms=nx.community.louvain_communities(G.to_undirected(),seed=42)
+        UG_clean=nx.Graph()
+        for u,v in G.to_undirected().edges():
+            if isinstance(u,str) and isinstance(v,str) and u!=v:
+                UG_clean.add_edge(u,v)
+        for n in G.nodes():
+            if isinstance(n,str): UG_clean.add_node(n)
+        comms=nx.community.louvain_communities(UG_clean,seed=42)
         a["n_communities"]=len(comms)
-        a["communities"]=[sorted(c) for c in sorted(comms,key=len,reverse=True)]
+        a["communities"]=[sorted(list(c)) for c in sorted(comms,key=len,reverse=True)]
     except: a["n_communities"]=1; a["communities"]=[]
 
     # Skills
@@ -821,8 +828,14 @@ with tab1:
         UG2=G.to_undirected()
         if len(UG2.nodes)>1:
             try:
-                comms=nx.community.louvain_communities(UG2,seed=42)
-                rows=[{"Cluster":f"Cluster {i+1}","Size":len(c),"Members":", ".join(sorted(c))} for i,c in enumerate(sorted(comms,key=len,reverse=True))]
+                UG2_clean=nx.Graph()
+                for u,v in UG2.edges():
+                    if isinstance(u,str) and isinstance(v,str) and u!=v:
+                        UG2_clean.add_edge(u,v)
+                for n in UG2.nodes():
+                    if isinstance(n,str): UG2_clean.add_node(n)
+                comms=nx.community.louvain_communities(UG2_clean,seed=42)
+                rows=[{"Cluster":f"Cluster {i+1}","Size":len(c),"Members":", ".join(sorted(list(c)))} for i,c in enumerate(sorted(comms,key=len,reverse=True))]
                 st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
             except: st.info("Community detection unavailable.")
 
