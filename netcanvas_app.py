@@ -269,11 +269,24 @@ def make_network_fig(G,color_by="degree",ego_names=None,node_meta=None,show_labe
         elif color_by=="isolated": return TERRA if indeg.get(n,0)==0 and n not in ego_set else INDIGO
         return INDIGO
 
+    # A node is "not yet named by anyone" if it has zero in-degree, regardless of
+    # which coloring mode is active. This gets a distinct outline ring in every
+    # mode so isolates never blend into the rest of the network just because
+    # their fill color happens to be a pale shade of whatever's selected.
+    def is_isolated(n): return indeg.get(n,0)==0
+
     node_colors=[get_color(n) for n in G.nodes]
     node_sizes=[12+30*(degree.get(n,0)/max(max_deg,1)) for n in G.nodes]
+    # Isolates get a thicker terra-colored ring instead of the default thin white
+    # border, and a slightly larger minimum size so they're never the smallest,
+    # easiest-to-miss dot on the canvas even when color_by isn't "isolated".
+    node_line_colors=[TERRA if is_isolated(n) else "white" for n in G.nodes]
+    node_line_widths=[3 if is_isolated(n) else 2 for n in G.nodes]
+    node_sizes=[max(s,18) if is_isolated(n) else s for n,s in zip(G.nodes,node_sizes)]
 
     def hover(n):
         lines=[f"<b>{n}</b>","",f"Connections: {degree.get(n,0)}",f"Times named: {indeg.get(n,0)}",f"Betweenness: {bw.get(n,0):.3f}"]
+        if is_isolated(n): lines+=["","⚠ Not yet named by anyone else"]
         if node_meta and n in node_meta:
             m=node_meta[n]
             if m.get("challenge"): lines+=["",f"<i>Challenge:</i> {str(m['challenge'])[:120]}"]
@@ -293,7 +306,7 @@ def make_network_fig(G,color_by="degree",ego_names=None,node_meta=None,show_labe
         mode=mode,text=[n for n in G.nodes],textposition="top center",
         textfont=dict(family="IBM Plex Mono",size=9,color=TEXT2),
         hovertext=[hover(n) for n in G.nodes],hoverinfo="text",
-        marker=dict(size=node_sizes,color=node_colors,line=dict(width=2,color="white")),
+        marker=dict(size=node_sizes,color=node_colors,line=dict(width=node_line_widths,color=node_line_colors)),
         showlegend=False)
 
     fig=go.Figure(data=[edge_trace,node_trace])
@@ -1185,7 +1198,8 @@ with tab1:
     ctrl_l,ctrl_r=st.columns([4,1])
     with ctrl_r:
         st.markdown("<br>",unsafe_allow_html=True)
-        color_by=st.selectbox("Color nodes by",["degree","in_degree","betweenness","survey_taker","isolated"],
+        color_options=["isolated","degree","in_degree","betweenness","survey_taker"]
+        color_by=st.selectbox("Color nodes by",color_options,index=0,
             format_func=lambda x:{"degree":"Connections (degree)","in_degree":"Times named","betweenness":"Bridge role","survey_taker":"Respondent vs. named","isolated":"Potential isolation"}.get(x,x))
         show_labels=st.checkbox("Show labels",value=True)
     with ctrl_l:
