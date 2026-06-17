@@ -34,11 +34,7 @@ h1,h2,h3{font-family:'Barlow Condensed',sans-serif;letter-spacing:-0.01em;color:
 .scorecard{flex:1;background:#F5F7F6;border-radius:8px;padding:18px 20px;border-top:3px solid #2825BE;}
 .scorecard .sc-val{font-family:'Barlow Condensed',sans-serif;font-size:36px;font-weight:800;line-height:1;margin-bottom:4px;}
 .scorecard .sc-label{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#4b5563;text-transform:uppercase;letter-spacing:0.08em;}
-        sc_html+=f'''<div class="scorecard" style="border-top-color:{c};">
-<div class="sc-val" style="color:{c};">{s}%</div>
-<div class="sc-label">{attr}</div>
-{"<div class="sc-sub">" + sub + "</div>" if sub else ""}
-</div>'''
+.scorecard .sc-sub{font-family:'IBM Plex Sans',sans-serif;font-size:11px;color:#4b5563;margin-top:4px;}
 .finding{border-bottom:1px solid #e2e5e3;padding:20px 0;}
 .finding:last-child{border-bottom:none;}
 .finding .f-label{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#EB9001;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:6px;}
@@ -400,34 +396,46 @@ def compute_analytics(ego_df,edge_df,G,pre_df=None):
         a["pct_shallow"]=round(dc.get("Awareness",0)+dc.get("Connection",0))
         depth_counts=edge_df["Depth of Connection"].value_counts()
         a["depth_counts"]={k:int(v) for k,v in depth_counts.items()}
+        # Active working relationships: only Cooperation/Collaboration connections are
+        # rated on Trust/Energy/Support/Creativity/Knowledge in the survey instrument.
+        active_mask=edge_df["Depth of Connection"].isin(["Cooperation","Collaboration"])
+        a["n_active"]=int(active_mask.sum())
+    else:
+        active_mask=pd.Series([True]*len(edge_df),index=edge_df.index)
+        a["n_active"]=len(edge_df)
 
-    # Relational quality
+    active_df=edge_df[active_mask]
+
+    # Relational quality — computed only across active (Cooperation+/Collaboration) connections,
+    # since Trust/Energy/Support/Creativity/Knowledge were only rated for that subset.
     for attr in ["Energy","Support","Creativity","Trust","Knowledge"]:
         if attr in edge_df.columns:
-            a[f"pct_{attr.lower()}"]=pct_high(edge_df[attr])
+            a[f"pct_{attr.lower()}"]=pct_high(active_df[attr])
 
-    # Low-trust edges
+    # Low-trust connections (same active base as pct_trust, so the two are complementary)
     if "Trust" in edge_df.columns:
-        low_trust=(edge_df["Trust"].isin(["Not at all","Somewhat"])).sum()
+        low_trust=(active_df["Trust"].isin(["Not at all","Somewhat"])).sum()
         a["n_low_trust"]=int(low_trust)
-        a["pct_low_trust"]=round(100*low_trust/max(len(edge_df),1))
+        a["pct_low_trust"]=round(100*low_trust/max(active_df["Trust"].notna().sum(),1))
 
-    # Low-energy edges
+    # Low-energy connections (same active base as pct_energy)
     if "Energy" in edge_df.columns:
-        low_e=(edge_df["Energy"].isin(["Not at all","Somewhat"])).sum()
+        low_e=(active_df["Energy"].isin(["Not at all","Somewhat"])).sum()
         a["n_low_energy"]=int(low_e)
-        a["pct_low_energy"]=round(100*low_e/max(len(edge_df),1))
+        a["pct_low_energy"]=round(100*low_e/max(active_df["Energy"].notna().sum(),1))
 
-    # Reciprocity
+    # Reciprocity — exclude unanswered/"not sure" rows from both numerator and denominator
     if "Reciprocity" in edge_df.columns:
-        a["pct_balanced"]=round(100*(edge_df["Reciprocity"]=="Roughly balanced").sum()/max(len(edge_df),1))
-        a["pct_one_way"]=round(100*(edge_df["Reciprocity"].isin(["Mostly flows from them to me","Mostly flows from me to them"])).sum()/max(len(edge_df),1))
+        rc=edge_df["Reciprocity"].value_counts(normalize=True)*100
+        a["pct_balanced"]=round(rc.get("Roughly balanced",0))
+        a["pct_one_way"]=round(rc.get("Mostly flows from them to me",0)+rc.get("Mostly flows from me to them",0))
 
     # Frequency
     if "Frequency of Interaction" in edge_df.columns:
         fc=edge_df["Frequency of Interaction"].value_counts(normalize=True)*100
         a["pct_frequent"]=round(fc.get("Weekly",0)+fc.get("Multiple times a week",0)+fc.get("Daily or near-daily",0))
         a["pct_infrequent"]=round(fc.get("Never or rarely",0)+fc.get("Once or twice a month",0))
+        a["n_freq_answered"]=int(edge_df["Frequency of Interaction"].notna().sum())
 
     # Relationship types
     if "Relationship Type(s)" in edge_df.columns:
@@ -445,14 +453,37 @@ def compute_analytics(ego_df,edge_df,G,pre_df=None):
     a["n_survey_isolated"]=len(survey_lonely)
     a["n_periphery"]=len(periphery)
 
-    # Bridges
+    # Bridges — anyone whose betweenness centrality clears the threshold used in the
+    # network visualization counts as a bridge actor, not just the single highest scorer.
     top_bw=sorted(bw.items(),key=lambda x:-x[1])
-    if top_bw: a["top_bridge"]=top_bw[0][0]; a["top_bridge_score"]=round(top_bw[0][1],3)
+    if top_bw:
+        a["top_bridge"]=top_bw[0][0]; a["top_bridge_score"]=round(top_bw[0][1],3)
+        max_bw=top_bw[0][1]
+        if max_bw>0:
+            bridge_actors=[n for n,v in bw.items() if v/max_bw>0.12 and v>0]
+        else:
+            bridge_actors=[]
+        a["n_bridge_actors"]=len(bridge_actors)
+        a["bridge_actors"]=bridge_actors
 
-    # Most named
+    # Most named / connectors — people named by a large share of survey respondents
     if "To" in edge_df.columns:
         top=edge_df["To"].value_counts().head(5)
         a["most_named"]=[(n,int(c)) for n,c in top.items()]
+        n_resp_for_connectors=max(len(ego_set),1)
+        connector_threshold=max(2,round(0.6*n_resp_for_connectors))
+        connectors=[(n,c) for n,c in top.items() if c>=connector_threshold]
+        a["n_connectors"]=len(connectors)
+        a["connectors"]=connectors
+
+    # Institutional anchors — organizations named most often across connections
+    # (distinct from ego Sector distribution: this reflects which orgs people are
+    # actually connected to, not which sector respondents themselves belong to)
+    if "To Organization" in edge_df.columns:
+        org_counts=edge_df["To Organization"].dropna()
+        org_counts=org_counts[org_counts.astype(str).str.strip()!=""]
+        org_counts=org_counts.value_counts()
+        a["top_anchor_orgs"]=[(o,int(c)) for o,c in org_counts.head(3).items()]
 
     # Geographic spread
     if "Geography" in ego_df.columns:
@@ -509,6 +540,11 @@ def build_insights_html(a, ego_df, edge_df):
     n_periphery    = a.get("n_periphery", 0)
     top_rel        = a.get("top_rel_type", "Peer Learning / Knowledge Exchange")
     communities    = a.get("communities", [])
+    n_active       = a.get("n_active", n_edges)
+    n_freq_answered= a.get("n_freq_answered", n_edges)
+    n_bridge_actors= a.get("n_bridge_actors", 0)
+    n_connectors   = a.get("n_connectors", 0)
+    top_anchor_orgs= a.get("top_anchor_orgs", [])
 
     # ── Depth bar segments ─────────────────────────────────────────────────
     dc = a.get("depth_counts", {})
@@ -527,7 +563,10 @@ def build_insights_html(a, ego_df, edge_df):
         for s, c in ego_df["Sector"].value_counts().items():
             sector_html += '<div class="chip">' + str(s) + ' <span class="chip-n">' + str(c) + '</span></div>'
 
-    # ── Geography bar chart ───────────────────────────────────────────────
+    # ── SVG US Map ─────────────────────────────────────────────────────────
+    map_svg = ""  # No static map — using bar chart instead
+
+        # Geo bar fallback (also used as supplementary list)
     geo_counts = a.get("geo_counts", {})
     geo_html = ""
     if geo_counts:
@@ -626,13 +665,19 @@ def build_insights_html(a, ego_df, edge_df):
         pass
 
     # ── Seven-component framing ────────────────────────────────────────────
+    if top_anchor_orgs:
+        anchor_names = " and ".join([o for o,_ in top_anchor_orgs[:2]])
+        anchor_desc = ("The organizations that hold relational life together. " + anchor_names +
+            " are named more than any other organizations in this network — they are doing real load-bearing work.")
+    else:
+        anchor_desc = "The organizations that hold relational life together. Distribution across function tells us whether institutional coverage spans the full range of sectors — or concentrates in a few."
     comp_rows = [
         ("#2825BE", "2 · Recognition", "Density of weak ties",
          "How many people in this network know each other — and are known by each other. Recognition is the on-ramp to every deeper relational component."),
         ("#0C7A7A", "4 · Mutual Obligation", "Trust under stress · Reciprocity of care",
          "What recognition becomes when activated by trust. The network data measures this directly: trust, energy, support, and reciprocity scores reflect whether mutual obligation is real or only claimed."),
         ("#EB9001", "6 · Institutional Anchors", "Distribution across function",
-         "The organizations that hold relational life together. Sector distribution tells us whether coverage spans the full range of functions — or concentrates in a few."),
+         anchor_desc),
     ]
     comp_html = ""
     for color, title, attr, desc in comp_rows:
@@ -643,6 +688,33 @@ def build_insights_html(a, ego_df, edge_df):
             '<div class="comp-desc">' + desc + '</div>'
             '</div>'
         )
+
+    # ── Network roles ─────────────────────────────────────────────────────
+    def role_card(color, label, stat, desc):
+        return (
+            '<div class="comp-card" style="border-left:3px solid ' + color + ';">'
+            '<div class="comp-num" style="color:' + color + ';">' + label + '</div>'
+            '<div class="comp-attr">' + stat + '</div>'
+            '<div class="comp-desc">' + desc + '</div>'
+            '</div>'
+        )
+    role_cards = []
+    if n_bridge_actors > 0:
+        role_cards.append(role_card("#EB9001", "Bridge Actors",
+            str(n_bridge_actors) + (" person holds" if n_bridge_actors == 1 else " people hold") + " the clusters together",
+            "These members sit on the most paths between others — if you want to reach someone in a different part of the network, you probably go through one of them. This is both a structural asset and a fragility."))
+    if n_connectors > 0:
+        role_cards.append(role_card("#0C7A7A", "Connectors",
+            (str(n_connectors) + " person was" if n_connectors == 1 else str(n_connectors) + " people were") + " named by nearly everyone",
+            "These are the people the network sees as central — high visibility, high trust — which isn't always the same as who carries the most connective load."))
+    if (n_isolated + n_periphery) > 0:
+        role_cards.append(role_card("#CF4C38", "Underconnected",
+            str(n_isolated + n_periphery) + (" person" if (n_isolated + n_periphery) == 1 else " people") + " not yet named by others",
+            "They may be newer to the group, or simply haven't had the right introduction yet. These are relationships worth a closer look."))
+    if n_communities > 1:
+        role_cards.append(role_card("#2825BE", str(n_communities) + " Clusters", "Groups within the network",
+            "Distinct groups more connected to each other than to the rest of the network. The boundary question applies: whose 'we' is each cluster built around, and who sits between them?"))
+    roles_html = "".join(role_cards)
 
     # ── Quality cells ──────────────────────────────────────────────────────
     def qcell(label, pct, low_pct, high_msg, low_msg):
@@ -698,10 +770,10 @@ def build_insights_html(a, ego_df, edge_df):
     # ── Questions for the room ─────────────────────────────────────────────
     questions = []
     if pct_low_trust > 20:
-        questions.append(("Trust", str(pct_low_trust) + "% of connections score low on trust.",
+        questions.append(("Trust", str(pct_low_trust) + "% of active working connections score low on trust.",
             "What would it take to deepen trust in relationships that feel thin? What has worked in your context?"))
     if pct_low_energy > 25:
-        questions.append(("Energy", str(pct_low_energy) + "% of connections feel low-energy.",
+        questions.append(("Energy", str(pct_low_energy) + "% of active working connections feel low-energy.",
             "Which relationships feel draining rather than generative? What conditions tend to produce energy in your work?"))
     if pct_balanced < 50:
         questions.append(("Reciprocity", "Many connections flow primarily in one direction.",
@@ -868,6 +940,18 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:white;}
 </div>
 """ if network_svg else "") + """
 
+""" + ("""
+<!-- NETWORK ROLES -->
+<div class="section">
+  <div class="section-eyebrow">Network Roles · What the structure reveals</div>
+  <div class="section-title">The invisible architecture<br>of influence</div>
+  <p style="font-family:'IBM Plex Sans',sans-serif;font-size:15px;color:rgba(255,255,255,0.45);max-width:640px;line-height:1.7;margin-bottom:24px;">
+    Every network has roles that only become visible when you map the connections. Here is what the data surfaces — anonymized, but real.
+  </p>
+  <div class="comp-grid">""" + roles_html + """</div>
+</div>
+""" if roles_html else "") + """
+
 <!-- SEVEN COMPONENTS -->
 <div class="section">
   <div class="section-eyebrow">Mapped to the seven components</div>
@@ -899,8 +983,8 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:white;}
 
 <!-- RELATIONAL QUALITY -->
 <div class="section">
-  <div class="section-eyebrow">Relational Quality · KESC Framework</div>
-  <div class="section-title">% rated "quite a bit"<br>or "a great deal"</div>
+  <div class="section-eyebrow">Relational Quality · """ + str(n_active) + """ Cooperation &amp; Collaboration Connections</div>
+  <div class="section-title">Among active working<br>relationships — rated<br>"quite a bit" or "a great deal"</div>
   <div class="quality-grid">""" + quality_html + """</div>
   <div class="kesc-note">
     <div class="kn-label">Source · Cross &amp; Parker (2004)</div>
@@ -908,11 +992,14 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:white;}
       In <em>The Hidden Power of Social Networks</em>, Cross and Parker found that what makes a network valuable is not the number of connections, but the quality of energy flowing through them.
       They identified four dimensions — Knowledge, Energy, Safety (trust), and Credibility (support) — that predict whether a relationship generates real value or quietly drains it.
       A frequent contact who scores low on energy and trust is not a network asset; they are a structural liability.
+      These four dimensions were only available to rate for connections at Cooperation or Collaboration depth — the """ + str(n_active) + """ active working relationships.
       The KESC lens shifts attention from <em>who knows whom</em> to <em>what flows between them</em>.
     </div>
   </div>
   <p style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:rgba(255,255,255,0.25);margin-top:12px;">
-    Reciprocity: """ + str(pct_balanced) + """% described as roughly balanced &nbsp;·&nbsp; """ + str(pct_frequent) + """% interact weekly or more
+    Rated for """ + str(n_active) + """ cooperation &amp; collaboration connections &nbsp;·&nbsp;
+    Reciprocity: """ + str(pct_balanced) + """% described as roughly balanced &nbsp;·&nbsp;
+    Frequency (""" + str(n_freq_answered) + """ of """ + str(n_edges) + """ answered): """ + str(pct_infrequent) + """% happen monthly or less — only """ + str(round(n_freq_answered*pct_frequent/100)) + """ are weekly or more
   </p>
 </div>
 
@@ -950,7 +1037,7 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:white;}
       </p>""" if comm_html else "") + """
     </div>
   </div>
-
+  """ + ("""<div class="section-eyebrow" style="color:#0C7A7A;margin-top:32px;margin-bottom:8px;">Geographic distribution</div>""" + map_svg if map_svg else "") + """
   <p style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;color:rgba(255,255,255,0.3);margin-top:24px;max-width:600px;line-height:1.7;">
     The dominant relationship type is <strong style="color:rgba(255,255,255,0.6);">""" + top_rel + """</strong>.
     """ + ("The network spans " + str(n_geographies) + " geographic areas — distance shapes who stays connected." if n_geographies > 2 else "") + """
@@ -1140,7 +1227,6 @@ with tab2:
             elif attr=="Energy": sub_labels.append("feel generative" if s>=60 else f"{a.get('pct_low_energy',0)}% feel low-energy")
             else: sub_labels.append("" )
 
-        sc_html='<div class="scorecard-row">'
         sc_html = '<div class="scorecard-row">'
         for attr,s,c,sub in zip(attrs,scores,colors,sub_labels):
             sub_div = f'<div class="sc-sub">{sub}</div>' if sub else ''
@@ -1148,7 +1234,8 @@ with tab2:
         sc_html += '</div>'
 
 
-        st.markdown(f'<div class="eyebrow">Relational Quality — % scoring "Quite a bit" or "A great deal"</div>',unsafe_allow_html=True)
+        n_active_tab2 = a.get("n_active", len(edge_df))
+        st.markdown(f'<div class="eyebrow">Relational Quality — % scoring "Quite a bit" or "A great deal" · among {n_active_tab2} Cooperation/Collaboration connections</div>',unsafe_allow_html=True)
         st.markdown(sc_html,unsafe_allow_html=True)
 
         st.markdown("<br>",unsafe_allow_html=True)
@@ -1293,13 +1380,14 @@ with tab4:
 
             # Mutual Obligation
             st.markdown(f'<div style="font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:{TEAL};border-bottom:2px solid {TEAL};padding-bottom:6px;margin-bottom:12px;margin-top:20px;">4 · Mutual Obligation</div>', unsafe_allow_html=True)
+            n_active_insight = a.get("n_active", a.get("n_edges",0))
             trust_color = GREEN if trust_pct>=60 else (AMBER if trust_pct>=40 else TERRA)
             st.markdown(insight_card(
                 "TRUST", trust_color,
                 "Care that holds when something tests it",
                 f"{trust_pct}% rate trust highly",
                 trust_color,
-                f"Trust under stress is the diagnostic attribute of mutual obligation. {f'{trust_low}% of connections score low on trust — these are the relationships where mutual obligation is most fragile.' if trust_low>15 else 'The network shows a relatively strong trust foundation.'} Reciprocity: {pct_balanced}% of connections are described as roughly balanced.",
+                f"Trust under stress is the diagnostic attribute of mutual obligation. Among the {n_active_insight} active (Cooperation/Collaboration) connections, {f'{trust_low}% score low on trust — these are the relationships where mutual obligation is most fragile.' if trust_low>15 else 'trust is relatively strong.'} Reciprocity: {pct_balanced}% of all connections are described as roughly balanced.",
                 "Key attribute: trust under stress"
             ), unsafe_allow_html=True)
             st.markdown(insight_card(
@@ -1307,7 +1395,7 @@ with tab4:
                 "Generativity across connections",
                 f"{energy_pct}% / {a.get('pct_creativity',0)}%",
                 TEAL,
-                f"Energy ({energy_pct}% high) and Creativity ({a.get('pct_creativity',0)}% high) track the aliveness of relationships. Where these are low, mutual obligation may exist in name but not in felt experience.",
+                f"Energy ({energy_pct}% high) and Creativity ({a.get('pct_creativity',0)}% high), measured across the {n_active_insight} active working relationships, track the aliveness of the connections doing real work. Where these are low, mutual obligation may exist in name but not in felt experience.",
                 "Key attribute: reciprocity of care"
             ), unsafe_allow_html=True)
 
@@ -1325,6 +1413,17 @@ with tab4:
                     AMBER,
                     f"The network spans {n_sectors} organizational sectors, led by {top_sector}. The framework asks whether institutional coverage spans the full range of functions — this is where gaps in sector representation become visible.",
                     "Key attribute: distribution across function"
+                ), unsafe_allow_html=True)
+            top_anchor_orgs = a.get("top_anchor_orgs", [])
+            if top_anchor_orgs:
+                anchor_names_str = " and ".join([o for o,_ in top_anchor_orgs[:2]])
+                st.markdown(insight_card(
+                    "ORGANIZATIONS NAMED MOST", AMBER,
+                    "Two organizations carry the most weight",
+                    anchor_names_str,
+                    AMBER,
+                    f"{anchor_names_str} are named more than any other organizations in the network — they are doing real load-bearing work, holding relational life together for the people connected through them.",
+                    "Key attribute: organizational load-bearing"
                 ), unsafe_allow_html=True)
 
             # Network structure
@@ -1365,13 +1464,15 @@ with tab4:
         st.markdown(f'<div class="eyebrow" style="color:{TERRA};">Signals worth watching</div>', unsafe_allow_html=True)
         watch_items = []
         if trust_low > 15:
-            watch_items.append(("Trust gap", f"{trust_low}% of connections score low on trust.", TERRA))
+            watch_items.append(("Trust gap", f"{trust_low}% of active (Cooperation/Collaboration) connections score low on trust.", TERRA))
         if a.get("n_survey_isolated",0) > 0:
             watch_items.append(("Isolation", f"{a.get('n_survey_isolated',0)} survey taker(s) not named by anyone else — the loneliness the proposal flags.", TERRA))
-        if a.get("top_bridge"):
-            watch_items.append(("Bridge concentration", f"One person carries disproportionate connective load (betweenness {a.get('top_bridge_score',0):.3f}). Structural asset and structural vulnerability.", AMBER))
+        n_bridge_actors_watch = a.get("n_bridge_actors", 0)
+        if n_bridge_actors_watch > 0:
+            bridge_word = "One person carries" if n_bridge_actors_watch == 1 else f"{n_bridge_actors_watch} people carry"
+            watch_items.append(("Bridge concentration", f"{bridge_word} disproportionate connective load (top betweenness {a.get('top_bridge_score',0):.3f}). Structural asset and structural vulnerability.", AMBER))
         if energy_low > 25:
-            watch_items.append(("Low-energy connections", f"{energy_low}% of connections feel low-energy — worth asking which ones, and why.", AMBER))
+            watch_items.append(("Low-energy connections", f"{energy_low}% of active connections feel low-energy — worth asking which ones, and why.", AMBER))
         if not watch_items:
             watch_items.append(("No major signals", "The network looks healthy across the key dimensions.", GREEN))
 
