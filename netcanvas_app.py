@@ -62,26 +62,31 @@ GML_NS="http://graphml.graphdrawing.org/xmlns"; MAX_BARE=3
 
 # Full TNN member roster (26 people) — the universe of everyone in the network,
 # independent of who completed the survey or who got named by others.
-# Source: TNN Member List, uploaded 6/2026. Anyone on this list who never shows up
-# as a respondent and never gets named by anyone else is still added to the graph
-# as an isolated node, so "people in the network" reflects the true roster size.
+# Source: TNN Member List (xlsx, structured FIRST NAME / LAST NAME columns,
+# uploaded 6/2026 — more reliable than the earlier PDF transcription). Anyone on
+# this list who never shows up as a respondent and never gets named by anyone
+# else is still added to the graph as an isolated node, so "people in the
+# network" reflects the true roster size.
 TNN_MEMBER_ROSTER=[
     "Adam Barlow-Thompson","Aidan Duffy","Alaide Vilchis Ibarra","Alyssa Ruch",
     "Antionette Taylor-Thomas","Ashley Wilson","Brenna Zeimet","Brian Foreman",
-    "Dan Rhodes","Dave Hillis Shoemaker","David Park","Grace Harrison",
-    "Jessica Ketola","Jonathan Hayden","Juli Kalbaugh","Keri Burns","Kim Jones",
-    "Kristina Fruge","Nate Tubbs","Nicholas Tangen","Ron Werner","Stacy Brungardt",
-    "Tim Conder","Tim Soerens","Tracy Hanrahan","Yvonne Murray",
+    "Dan Rhodes","Dave Hillis","David Park","Grace Harrison","Jessica Ketola",
+    "Jonathan Hayden","Juli Kalbaugh","Kari Burns","Kim Jones","Kristina Fruge",
+    "Nate Tubbs","Nicholas Tangen","Ron Werner","Stacy Brungardt","Tim Conder",
+    "Tim Soerens","Tracy Hanrahan","Yvonne Murray",
 ]
 
 # Known aliases: roster name -> alternate spelling(s) confirmed to be the same
 # person as they appear in the actual NetCanvas survey data. Add to this list
 # whenever the near-duplicate warning flags a real match (not a coincidence)
 # so the roster never re-introduces that ghost node again.
+# Note: the earlier "Dave Hillis Shoemaker" / "Keri Burns" entries were
+# transcription errors from the original PDF roster (Shoemaker is part of his
+# job title, "Shoemaker Senior Fellow," not his surname; Kari was misspelled
+# Keri) — corrected directly in the roster above rather than via alias.
 TNN_NAME_ALIASES={
     "Adam Barlow-Thompson": ["Adam Barlow Thompson"],
     "Alaide Vilchis Ibarra": ["Alaide Vilchis"],
-    "Dave Hillis Shoemaker": ["Dave Shoemaker"],
 }
 
 def _norm_name(n):
