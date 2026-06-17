@@ -74,9 +74,24 @@ TNN_MEMBER_ROSTER=[
     "Tim Conder","Tim Soerens","Tracy Hanrahan","Yvonne Murray",
 ]
 
+# Known aliases: roster name -> alternate spelling(s) confirmed to be the same
+# person as they appear in the actual NetCanvas survey data. Add to this list
+# whenever the near-duplicate warning flags a real match (not a coincidence)
+# so the roster never re-introduces that ghost node again.
+TNN_NAME_ALIASES={
+    "Adam Barlow-Thompson": ["Adam Barlow Thompson"],
+    "Alaide Vilchis Ibarra": ["Alaide Vilchis"],
+    "Dave Hillis Shoemaker": ["Dave Shoemaker"],
+}
+
 def _norm_name(n):
     """Normalize a name for roster matching: strip, collapse whitespace, casefold."""
     return " ".join(str(n).strip().split()).casefold()
+
+def _alias_norms(name, alias_map):
+    """All normalized forms (canonical + known aliases) for a roster name."""
+    forms=[name]+alias_map.get(name,[])
+    return {_norm_name(f) for f in forms}
 
 def _gml(t): return f"{{{GML_NS}}}{t}"
 def lbl(val,lookup):
@@ -249,10 +264,23 @@ def build_excel(ego_df,edge_df):
     out=io.BytesIO(); wb.save(out); out.seek(0); return out
 
 # ── Graph ─────────────────────────────────────────────────────────────────────
-def build_graph(edge_df, ego_df=None, roster=None):
-    """Builds the network graph. Returns (G, roster_added) where roster_added is
-    the list of roster names that weren't already present (as an ego or as a
-    named connection) and were added as isolated nodes."""
+def _name_similarity(a,b):
+    """Lightweight similarity check (no extra dependency): ratio of shared
+    tokens, splitting on whitespace AND hyphens so "Barlow-Thompson" matches
+    "Barlow Thompson". Used only to flag *possible* near-duplicates for a
+    human to review — never used to auto-merge names."""
+    def tokens(s): return set(_norm_name(s).replace("-"," ").split())
+    ta=tokens(a); tb=tokens(b)
+    if not ta or not tb: return 0.0
+    return len(ta & tb)/len(ta | tb)
+
+def build_graph(edge_df, ego_df=None, roster=None, aliases=None):
+    """Builds the network graph. Returns (G, roster_added, possible_dupes) where
+    roster_added is the list of roster names added as isolated nodes because no
+    matching name (or known alias) was found, and possible_dupes flags roster
+    names that are similar-but-not-identical to an existing node and have NOT
+    been confirmed as an alias yet — likely a formatting mismatch worth reviewing."""
+    aliases=aliases or {}
     G=nx.DiGraph()
     # Add all survey takers as nodes first, so isolated egos still appear
     if ego_df is not None and "Name" in ego_df.columns:
@@ -269,17 +297,33 @@ def build_graph(edge_df, ego_df=None, roster=None):
 
     # Add any roster members not already represented (as ego or named connection),
     # so the network reflects the full member list rather than only who showed up
-    # as a respondent or got named by someone else. Matched case/whitespace-insensitively
-    # so trivial formatting differences don't create duplicate nodes.
-    roster_added=[]
+    # as a respondent or got named by someone else. Matched case/whitespace-insensitively,
+    # and against any confirmed aliases, so known formatting differences (e.g. a
+    # hyphen vs. a space, a dropped middle name) don't create duplicate "ghost" nodes
+    # for someone who's actually already in the graph under a slightly different spelling.
+    roster_added=[]; possible_dupes=[]
     if roster:
-        existing_norm={_norm_name(n) for n in G.nodes}
+        existing_nodes=list(G.nodes)
+        existing_norm={_norm_name(n) for n in existing_nodes}
         for member in roster:
-            if _norm_name(member) not in existing_norm:
-                G.add_node(member)
-                roster_added.append(member)
-                existing_norm.add(_norm_name(member))
-    return G, roster_added
+            member_forms=_alias_norms(member, aliases)
+            if member_forms & existing_norm:
+                continue  # already present, either exactly or via a confirmed alias
+            # Flag likely near-duplicates before adding, so a mismatch like
+            # "Dave Hillis Shoemaker" vs "Dave Shoemaker" gets surfaced for review
+            # instead of silently creating a second node for the same person.
+            best_match=None; best_score=0.0
+            for existing in existing_nodes:
+                score=_name_similarity(member,existing)
+                if score>best_score:
+                    best_score=score; best_match=existing
+            if best_match and best_score>=0.5:
+                possible_dupes.append((member,best_match,round(best_score,2)))
+            G.add_node(member)
+            roster_added.append(member)
+            existing_norm.add(_norm_name(member))
+            existing_nodes.append(member)
+    return G, roster_added, possible_dupes
 
 # ── Network figure (light bg, visible edges) ──────────────────────────────────
 def make_network_fig(G,color_by="degree",ego_names=None,node_meta=None,show_labels=True):
@@ -1163,7 +1207,7 @@ with st.sidebar:
                 ego_df,edge_df,warnings=process_buckets(buckets)
                 pre_df=parse_presurvey(presurvey_file) if presurvey_file else pd.DataFrame()
                 if not pre_df.empty: ego_df=merge_presurvey(ego_df,pre_df)
-                G,roster_added=build_graph(edge_df, ego_df, roster=TNN_MEMBER_ROSTER)
+                G,roster_added,possible_dupes=build_graph(edge_df, ego_df, roster=TNN_MEMBER_ROSTER, aliases=TNN_NAME_ALIASES)
                 ego_names=list(ego_df["Name"].dropna()) if "Name" in ego_df.columns else []
                 node_meta={}
                 if not pre_df.empty:
@@ -1172,9 +1216,12 @@ with st.sidebar:
                 analytics=compute_analytics(ego_df,edge_df,G,pre_df if not pre_df.empty else None)
                 st.session_state.update({"ego_df":ego_df,"edge_df":edge_df,"G":G,
                     "ego_names":ego_names,"pre_df":pre_df,"node_meta":node_meta,"analytics":analytics,
-                    "roster_added":roster_added})
+                    "roster_added":roster_added,"possible_dupes":possible_dupes})
             for w in warnings: st.warning(w)
             st.success(f"✅ {len(ego_df)} participant(s) · {len(edge_df)} edge(s)")
+            if possible_dupes:
+                dupe_lines="; ".join([f'"{m}" (roster) vs "{e}" (in data), {s*100:.0f}% name overlap' for m,e,s in possible_dupes])
+                st.warning(f"⚠️ {len(possible_dupes)} roster name(s) look like they may be the same person under different spelling — please check before trusting node/density counts: {dupe_lines}")
             if roster_added:
                 st.info(f"ℹ️ Added {len(roster_added)} member(s) from the roster who weren't named or a respondent: " + ", ".join(roster_added))
 
