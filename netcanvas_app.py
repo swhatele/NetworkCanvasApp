@@ -60,6 +60,24 @@ SHARING_LABELS={1:"Place & Built Environment",2:"Recognition",3:"Rhythm & Recurr
 CONFIDENTIALITY_LABELS={1:"Yes – share full responses",2:"Yes – aggregate/anonymized only",3:"No – keep private"}
 GML_NS="http://graphml.graphdrawing.org/xmlns"; MAX_BARE=3
 
+# Full TNN member roster (26 people) — the universe of everyone in the network,
+# independent of who completed the survey or who got named by others.
+# Source: TNN Member List, uploaded 6/2026. Anyone on this list who never shows up
+# as a respondent and never gets named by anyone else is still added to the graph
+# as an isolated node, so "people in the network" reflects the true roster size.
+TNN_MEMBER_ROSTER=[
+    "Adam Barlow-Thompson","Aidan Duffy","Alaide Vilchis Ibarra","Alyssa Ruch",
+    "Antionette Taylor-Thomas","Ashley Wilson","Brenna Zeimet","Brian Foreman",
+    "Dan Rhodes","Dave Hillis Shoemaker","David Park","Grace Harrison",
+    "Jessica Ketola","Jonathan Hayden","Juli Kalbaugh","Keri Burns","Kim Jones",
+    "Kristina Fruge","Nate Tubbs","Nicholas Tangen","Ron Werner","Stacy Brungardt",
+    "Tim Conder","Tim Soerens","Tracy Hanrahan","Yvonne Murray",
+]
+
+def _norm_name(n):
+    """Normalize a name for roster matching: strip, collapse whitespace, casefold."""
+    return " ".join(str(n).strip().split()).casefold()
+
 def _gml(t): return f"{{{GML_NS}}}{t}"
 def lbl(val,lookup):
     if pd.isna(val): return ""
@@ -231,21 +249,37 @@ def build_excel(ego_df,edge_df):
     out=io.BytesIO(); wb.save(out); out.seek(0); return out
 
 # ── Graph ─────────────────────────────────────────────────────────────────────
-def build_graph(edge_df, ego_df=None):
+def build_graph(edge_df, ego_df=None, roster=None):
+    """Builds the network graph. Returns (G, roster_added) where roster_added is
+    the list of roster names that weren't already present (as an ego or as a
+    named connection) and were added as isolated nodes."""
     G=nx.DiGraph()
     # Add all survey takers as nodes first, so isolated egos still appear
     if ego_df is not None and "Name" in ego_df.columns:
         for name in ego_df["Name"].dropna():
             name=str(name).strip()
             if name and name not in ("nan","None"): G.add_node(name)
-    if edge_df.empty: return G
-    for _,r in edge_df.iterrows():
-        frm=str(r["From"]).strip(); to=str(r["To"]).strip()
-        if not frm or not to or frm in ("nan","None") or to in ("nan","None"): continue
-        if frm==to: continue  # skip self-loops
-        if G.has_edge(frm,to): G[frm][to]["weight"]=G[frm][to].get("weight",1)+1
-        else: G.add_edge(frm,to,weight=1)
-    return G
+    if not edge_df.empty:
+        for _,r in edge_df.iterrows():
+            frm=str(r["From"]).strip(); to=str(r["To"]).strip()
+            if not frm or not to or frm in ("nan","None") or to in ("nan","None"): continue
+            if frm==to: continue  # skip self-loops
+            if G.has_edge(frm,to): G[frm][to]["weight"]=G[frm][to].get("weight",1)+1
+            else: G.add_edge(frm,to,weight=1)
+
+    # Add any roster members not already represented (as ego or named connection),
+    # so the network reflects the full member list rather than only who showed up
+    # as a respondent or got named by someone else. Matched case/whitespace-insensitively
+    # so trivial formatting differences don't create duplicate nodes.
+    roster_added=[]
+    if roster:
+        existing_norm={_norm_name(n) for n in G.nodes}
+        for member in roster:
+            if _norm_name(member) not in existing_norm:
+                G.add_node(member)
+                roster_added.append(member)
+                existing_norm.add(_norm_name(member))
+    return G, roster_added
 
 # ── Network figure (light bg, visible edges) ──────────────────────────────────
 def make_network_fig(G,color_by="degree",ego_names=None,node_meta=None,show_labels=True):
@@ -1129,7 +1163,7 @@ with st.sidebar:
                 ego_df,edge_df,warnings=process_buckets(buckets)
                 pre_df=parse_presurvey(presurvey_file) if presurvey_file else pd.DataFrame()
                 if not pre_df.empty: ego_df=merge_presurvey(ego_df,pre_df)
-                G=build_graph(edge_df, ego_df)
+                G,roster_added=build_graph(edge_df, ego_df, roster=TNN_MEMBER_ROSTER)
                 ego_names=list(ego_df["Name"].dropna()) if "Name" in ego_df.columns else []
                 node_meta={}
                 if not pre_df.empty:
@@ -1137,9 +1171,12 @@ with st.sidebar:
                         node_meta[r["name"]]={"challenge":r.get("challenge",""),"skills_offered":r.get("skills_offered","")}
                 analytics=compute_analytics(ego_df,edge_df,G,pre_df if not pre_df.empty else None)
                 st.session_state.update({"ego_df":ego_df,"edge_df":edge_df,"G":G,
-                    "ego_names":ego_names,"pre_df":pre_df,"node_meta":node_meta,"analytics":analytics})
+                    "ego_names":ego_names,"pre_df":pre_df,"node_meta":node_meta,"analytics":analytics,
+                    "roster_added":roster_added})
             for w in warnings: st.warning(w)
             st.success(f"✅ {len(ego_df)} participant(s) · {len(edge_df)} edge(s)")
+            if roster_added:
+                st.info(f"ℹ️ Added {len(roster_added)} member(s) from the roster who weren't named or a respondent: " + ", ".join(roster_added))
 
     if "edge_df" in st.session_state and not st.session_state["edge_df"].empty:
         st.markdown("---")
