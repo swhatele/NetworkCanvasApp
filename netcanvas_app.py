@@ -151,6 +151,8 @@ def extract_zips(uploaded_zips):
 def process_buckets(buckets):
     all_egos,all_edges,warnings=[],[],[]
     uuid_to_name={}
+    bare_named=set()   # people named only via Aspired Connections / Informal Influence —
+                        # never given a full rating, but still real people in the network
     for sid,files in buckets.items():
         if "ego" not in files: warnings.append(f"No ego file for `{sid}` — skipped."); continue
         ego=parse_ego(files["ego"])
@@ -159,7 +161,9 @@ def process_buckets(buckets):
         nodes=[]
         if "attrs" in files: nodes=parse_attributes(files["attrs"],ego_uuid,ego_name)
         for n in nodes:
-            if n["network_question"]!="Current Connections": continue
+            if n["network_question"]!="Current Connections":
+                if n.get("name"): bare_named.add(str(n["name"]).strip())
+                continue
             all_edges.append({"From":ego_name,"To":n["name"],"To Organization":n["organization"],
                 "Frequency of Interaction":n["frequency"],"Depth of Connection":n["depth"],
                 "Knowledge of Their Work":n["knowledge"],"Energy":n["energy"],"Support":n["support"],
@@ -172,7 +176,13 @@ def process_buckets(buckets):
         "consent":"Consent","expansion":"Expansion / Other Members","open":"Open to New Members?",
         "tenure":"Tenure","session_start":"Session Start","session_finish":"Session Finish"})
     edge_df=pd.DataFrame(all_edges) if all_edges else pd.DataFrame()
-    return ego_df,edge_df,warnings
+    # Only keep bare-named people who never ALSO show up with a rated connection
+    # from someone else — if anyone rated them, they're already a node via edge_df.
+    rated_names=set(edge_df["To"].dropna()) if not edge_df.empty and "To" in edge_df.columns else set()
+    if ego_df is not None and not ego_df.empty and "Name" in ego_df.columns:
+        rated_names |= set(ego_df["Name"].dropna())
+    bare_only=sorted(n for n in bare_named if n and n not in rated_names)
+    return ego_df,edge_df,warnings,bare_only
 
 def parse_presurvey(uploaded_file):
     df=pd.read_excel(uploaded_file,sheet_name="Form Responses 1")
@@ -231,20 +241,30 @@ def build_excel(ego_df,edge_df):
     out=io.BytesIO(); wb.save(out); out.seek(0); return out
 
 # ── Graph ─────────────────────────────────────────────────────────────────────
-def build_graph(edge_df, ego_df=None):
+def build_graph(edge_df, ego_df=None, bare_only=None):
+    """Builds the network graph. bare_only is a list of people who were named
+    in someone's Aspired Connections / Informal Influence answers but never
+    given a full rating by anyone — they're real people in the network, just
+    not (yet) the subject of a rated current connection, so they're added as
+    isolated nodes rather than silently dropped."""
     G=nx.DiGraph()
     # Add all survey takers as nodes first, so isolated egos still appear
     if ego_df is not None and "Name" in ego_df.columns:
         for name in ego_df["Name"].dropna():
             name=str(name).strip()
             if name and name not in ("nan","None"): G.add_node(name)
-    if edge_df.empty: return G
-    for _,r in edge_df.iterrows():
-        frm=str(r["From"]).strip(); to=str(r["To"]).strip()
-        if not frm or not to or frm in ("nan","None") or to in ("nan","None"): continue
-        if frm==to: continue  # skip self-loops
-        if G.has_edge(frm,to): G[frm][to]["weight"]=G[frm][to].get("weight",1)+1
-        else: G.add_edge(frm,to,weight=1)
+    if not edge_df.empty:
+        for _,r in edge_df.iterrows():
+            frm=str(r["From"]).strip(); to=str(r["To"]).strip()
+            if not frm or not to or frm in ("nan","None") or to in ("nan","None"): continue
+            if frm==to: continue  # skip self-loops
+            if G.has_edge(frm,to): G[frm][to]["weight"]=G[frm][to].get("weight",1)+1
+            else: G.add_edge(frm,to,weight=1)
+    if bare_only:
+        for name in bare_only:
+            name=str(name).strip()
+            if name and name not in ("nan","None") and name not in G.nodes:
+                G.add_node(name)
     return G
 
 # ── Network figure (light bg, visible edges) ──────────────────────────────────
@@ -1139,10 +1159,10 @@ with st.sidebar:
         if st.button("▶  Process",type="primary",use_container_width=True):
             with st.spinner("Processing..."):
                 buckets=extract_zips(uploaded)
-                ego_df,edge_df,warnings=process_buckets(buckets)
+                ego_df,edge_df,warnings,bare_only=process_buckets(buckets)
                 pre_df=parse_presurvey(presurvey_file) if presurvey_file else pd.DataFrame()
                 if not pre_df.empty: ego_df=merge_presurvey(ego_df,pre_df)
-                G=build_graph(edge_df, ego_df)
+                G=build_graph(edge_df, ego_df, bare_only=bare_only)
                 ego_names=list(ego_df["Name"].dropna()) if "Name" in ego_df.columns else []
                 node_meta={}
                 if not pre_df.empty:
@@ -1150,9 +1170,12 @@ with st.sidebar:
                         node_meta[r["name"]]={"challenge":r.get("challenge",""),"skills_offered":r.get("skills_offered","")}
                 analytics=compute_analytics(ego_df,edge_df,G,pre_df if not pre_df.empty else None)
                 st.session_state.update({"ego_df":ego_df,"edge_df":edge_df,"G":G,
-                    "ego_names":ego_names,"pre_df":pre_df,"node_meta":node_meta,"analytics":analytics})
+                    "ego_names":ego_names,"pre_df":pre_df,"node_meta":node_meta,"analytics":analytics,
+                    "bare_only":bare_only})
             for w in warnings: st.warning(w)
-            st.success(f"✅ {len(ego_df)} participant(s) · {len(edge_df)} edge(s)")
+            st.success(f"✅ {len(ego_df)} participant(s) · {len(edge_df)} edge(s) · {len(G.nodes)} people in the network")
+            if bare_only:
+                st.info(f"ℹ️ {len(bare_only)} additional person/people are named only as Aspired Connections or Informal Influence (no one has rated them as a Current Connection yet), so they appear in the network as not-yet-connected: " + ", ".join(bare_only))
 
     if "edge_df" in st.session_state and not st.session_state["edge_df"].empty:
         st.markdown("---")
